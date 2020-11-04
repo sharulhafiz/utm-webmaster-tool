@@ -14,13 +14,10 @@ Author URI: http://corporateaffairs.utm.my
 */
 require_once ABSPATH . 'wp-admin/includes/ms.php';
 include( plugin_dir_path( __FILE__ ) . 'shortcodes.php');
+include( plugin_dir_path( __FILE__ ) . 'listblogs.php');
+include( plugin_dir_path( __FILE__ ) . 'multisite-api.php');
+// include( plugin_dir_path( __FILE__ ) . 'jkncr.php');
 // include_once(ABSPATH . 'wp-includes/pluggable.php');
-
-// UTM Central Script
-function utm_query() {
-	wp_enqueue_script ('utm_header_footer', '//www.utm.my/dev/utmQuery.js', array('jquery'), '1.0', true);
-}
-add_action('wp_enqueue_scripts','utm_query');
 
 if(!class_exists('WP_List_Table')){
     require_once( ABSPATH . 'wp-admin/includes/class-wp-list-table.php' );
@@ -31,33 +28,35 @@ define("utm_webmaster_plugin_path",plugin_dir_path(__FILE__));
 define("utm_webmaster_plugin_url",WP_PLUGIN_URL . "/".basename($url)."/");
 
 // register hook
-register_activation_hook( __FILE__, 'MISTERPAH_CCM_activate' );
-function MISTERPAH_CCM_activate() {
+register_activation_hook( __FILE__, 'notice_to_single_site_wp' );
+function notice_to_single_site_wp() {
 	if ( is_multisite() == False) {
 		echo "FOR MULTISITE ONLY!";
 	}
 }
 
 // add to menu in network
-function utm_webmaster_register_custom_menu_page() {
+function register_admin_menu() {
 	add_menu_page(
 			__( 'UTM Webmaster Tool', 'textdomain' ),
 			'UTM Webmaster Tool',
 			'manage_options',
-			'utm_webmaster_site_statistics',
-			'utm_webmaster_site_statistics',
+			'multisite_statistics',
+			'multisite_statistics',
 			'',
 			25
 		);
-	add_submenu_page('utm_webmaster_site_statistics', 'Orphan Users', 'Orphan Users', 'manage_options', 'utm_webmaster_users', 'utm_webmaster_users');
-	add_submenu_page('utm_webmaster_site_statistics', 'Add To Blogs', 'Add To Blogs', 'manage_options', 'utm_webmaster_add_to_blogs', 'utm_webmaster_add_to_blogs');
+	add_submenu_page('multisite_statistics', 'Orphan Users', 'Orphan Users', 'manage_options', 'delete_orphan_user', 'delete_orphan_user');
+	add_submenu_page('multisite_statistics', 'Add To Blogs', 'Add To Blogs', 'manage_options', 'add_user_to_blogs', 'add_user_to_blogs');
 }
-add_action( 'network_admin_menu', 'utm_webmaster_register_custom_menu_page' );
+add_action( 'network_admin_menu', 'register_admin_menu' );
 
-function utm_webmaster_site_statistics() {
+// multisite statistics
+function multisite_statistics() {
 	esc_html_e( 'UTM Webmaster Site Statistics', 'textdomain' );
-	echo "<script src='".utm_webmaster_plugin_url."tablesort.min.js'></script>";
-	echo '<link rel="stylesheet" href="'.utm_webmaster_plugin_url.'style.css" type="text/css" media="all">';
+	echo "<script src='//cdn.datatables.net/1.10.19/js/jquery.dataTables.min.js'></script>";
+	// echo '<link rel="stylesheet" href="'.utm_webmaster_plugin_url.'style.css" type="text/css" media="all">';
+	echo '<link rel="stylesheet" href="//cdn.datatables.net/1.10.19/css/jquery.dataTables.min.css" type="text/css" media="all">';
 	global $wpdb;
 	$blogs = $wpdb->get_results( "SELECT blog_id, domain, path FROM `" . $wpdb->blogs . "` ORDER BY blog_id DESC" );
 	if ($blogs) {
@@ -184,7 +183,10 @@ function utm_webmaster_site_statistics() {
 			each = blogs_info[i];
 			$("#sort tbody").append("<tr><td>"+each['blog_id']+"</td> <td><a target='_blank' href='http://"+each['domain']+each['path']+"'>"+each['domain']+each['path']+"</a> <a class='row-actions' target='_blank' href='/wp-admin/network/site-info.php?id="+each['blog_id']+"'>Edit</a></td> <td>"+each['comments']+"</td> <td>"+each['attachments']+"</td> <td>"+each['post']+"</td> <td>"+each['page']+"</td> <td>"+each['postpage']+"</td> <td>"+each['diskusage']+"</td><td>"+Number(each['usercount'])+"</td><td>"+each['last_updated']+"</td> </tr>");
 	}
-	new Tablesort(document.getElementById('sort'));
+	// new Tablesort(document.getElementById('sort'));
+	$(document).ready( function () {
+    $('#sort').DataTable();
+} );
 	});
 	</script>
 
@@ -209,7 +211,8 @@ function utm_webmaster_site_statistics() {
 <?php
 }
 
-function utm_webmaster_users() {
+// delete orphan users
+function delete_orphan_user() {
 	global $wpdb;
 	$user_name = 'deleted';
 	$user_email = 'deleted@utm.my';
@@ -271,7 +274,7 @@ function utm_webmaster_users() {
       m = n.getHours()+':'+minutes;
 
 			var data = {
-				'action': 'delete_orphan_users',
+				'action': 'delete_orphan_users_ajax',
 				'user_id': users_info[i]
 			};
       $.ajax({
@@ -304,9 +307,10 @@ function utm_webmaster_users() {
 	<?php
 } // end utm webmaster user
 
-add_action( 'wp_ajax_delete_orphan_users', 'delete_orphan_users' );
+add_action( 'wp_ajax_delete_orphan_users_ajax', 'delete_orphan_users_ajax' );
 
-function delete_orphan_users() {
+// ajax delete orphan users
+function delete_orphan_users_ajax() {
 	global $wpdb; // this is how you get access to the database
 
 	$user_id = intval( $_POST['user_id'] );
@@ -320,7 +324,8 @@ function delete_orphan_users() {
 	wp_die(); // this is required to terminate immediately and return a proper response
 }
 
-function utm_webmaster_add_to_blogs() {
+// add user to blogs
+function add_user_to_blogs() {
 	global $wpdb;
 
 	echo "<div class='wrap'>";
@@ -331,21 +336,36 @@ function utm_webmaster_add_to_blogs() {
 		if ($user == false){
 			echo $_POST['username'] . " not found";
 		} else {
+			// explode
 			$blogpath = $_POST['blogpath'];
+			$blogpath = explode (PHP_EOL, $blogpath);
+
 			$blogs = $wpdb->get_results( "SELECT blog_id, domain, path FROM `" . $wpdb->blogs . "` ORDER BY blog_id DESC" );
 			if ($blogs) {
 				$blogs_info = array();
 				foreach ( $blogs as $blog ) {
-					if (stripos($blog->path, $blogpath) !== false){
-						$slug = $blog->path;
-						$id = get_id_from_blogname($slug);
-						//ADD USER ID TO BLOG ID AS AN ADMINISTRATOR
-						$blog_id = $blog->blog_id;
-						$role = 'administrator';
-						add_user_to_blog( $blog_id, $user->ID, $role );
-						$url = get_site_url($blog->blog_id);
-						echo $user->user_login . " added to " . $url . "<br>";
+					foreach ( $blogpath as $path ) {
+						$path = str_replace("http://","",$path);
+						$path = str_replace("https://","",$path);
+						$path = explode ("/", $path);
+						$path = "/" . $path[1] . "/";
+						// echo $path . "<br>";
+						// echo $blog->path;
+						if (stripos($blog->path, $path) !== false){
+							$slug = $blog->path;
+							$id = get_id_from_blogname($slug);
+
+							//ADD USER ID TO BLOG ID AS AN ADMINISTRATOR
+							$blog_id = $blog->blog_id;
+							$role = 'administrator';
+							add_user_to_blog( $blog_id, $user->ID, $role );
+							$url = get_site_url($blog->blog_id);
+							echo $user->user_login . " added to " . $url . "<br>";
+						} else {
+							// echo "error<br>";
+						}
 					}
+					// break;
 				}
 			}
 		}
@@ -355,11 +375,11 @@ function utm_webmaster_add_to_blogs() {
 	<table class="form-table">
 		<tbody><tr class="form-field form-required">
 			<th scope="row"><label for="username">Username</label></th>
-			<td><input type="text" class="regular-text" name="username" id="username" autocapitalize="none" autocorrect="off" maxlength="60"></td>
+			<td><input type="text" class="regular-text" name="username" id="username" autocapitalize="none" autocorrect="off" maxlength="60" value="<?php echo $_POST['username']; ?>"></td>
 		</tr>
 		<tr class="form-field form-required">
 			<th scope="row"><label for="blogpath">Blog Path</label></th>
-			<td><input type="text" class="regular-text" name="blogpath" id="blogpath"></td>
+			<td><textarea class="regular-text" name="blogpath" id="blogpath" rows="10" cols="30"><?php echo $_POST['blogpath']; ?></textarea><br></td>
 		</tr>
 		<tr class="form-field">
 			<td colspan="2">User will be added to the founded blogs.</td>
@@ -370,8 +390,8 @@ function utm_webmaster_add_to_blogs() {
 	echo "</div>";
 }
 
-add_action('init','redirectnonadmin');
-function redirectnonadmin(){
+add_action('init','redirect_admin');
+function redirect_admin(){
 	$currentblogid = get_current_blog_id();
 	if($currentblogid == 1){
 		if(is_admin()){
