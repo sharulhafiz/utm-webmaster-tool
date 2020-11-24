@@ -1,20 +1,33 @@
 <?php
 function unarchiveblog(){
 	global $wpdb;
-	if(isset($_GET['unarchive'])){
-		$wpdb->update(
-			$wpdb->blogs,
-			array( 
-				'public' => 0,
-				'archived' => 0,
-			),
-			array(
-				'blog_id' => $_GET['unarchive'],
-			)
-		);
+	if(current_user_can('administrator')) {
+		echo 'To unarchive a site, add ?unarchive=siteid to URL<br>';
 	}
-	echo $_GET['unarchive'] . " unarchived.";
-	die();
+	if(isset($_GET['unarchive'])){
+		$blog_id = $_GET['unarchive'];
+		if(get_blog_status( $blog_id, 'archived' ) == 1){
+			$wpdb->update(
+				$wpdb->blogs,
+				array( 
+					'public' => 0,
+					'archived' => 0,
+				),
+				array(
+					'blog_id' => $blog_id,
+				)
+			);
+			switch_to_blog($blog_id);
+			echo get_bloginfo('url') . 'has been unarchived'; //https://developer.wordpress.org/reference/functions/get_bloginfo/
+		} else {
+			switch_to_blog($blog_id);
+			echo get_bloginfo('url') . 'was unarchived';
+		}
+		die();
+	}
+	// echo $blog_id . " unarchived. ";
+	// echo 'Blog '.$blog_id.' was last updated '.get_blog_status( $blog_id, $preference );
+	
 }
 function utmwebmaster_listblogs()
 {

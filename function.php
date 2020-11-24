@@ -1,5 +1,34 @@
 <?php
-if (get_option('last_email_reminder') !== false) {
+// callback function
+function redirect_to_user_blog( $user_login, WP_User $user ) {
+	$blog_id = get_current_blog_id();
+    if ( is_main_site( $blog_id ) ) {
+		$user_id = get_current_user_id(); // get ID
+		$user_blogs = get_blogs_of_user($user_id);
+		if (count($user_blogs) == 1) {
+			foreach ($user_blogs as $blog) {
+				// https://codex.wordpress.org/WPMU_Functions/get_blog_status
+				$preference = 'archived';
+				echo 'Blog '.$blog_id.' was last updated '.get_blog_status( $blog_id, $preference );
+				wp_redirect($blog->siteurl);
+
+			}
+		} else if (count($user_blogs) > 0) {
+			foreach ($user_blogs as $blog) {
+				echo "<a href='" . $blog->siteurl . "'> . $blog->siteurl . </a><br>";
+			}
+		} else {
+			// echo "<a href='".site_url('/wp-login.php?action=register')."'>Click here to register a site</a>";
+			echo "You have no registered website. ";
+			echo "<a href='".site_url('/register')."'>Click here to register a site</a>";
+		}
+	}		
+}
+// action hook
+add_action( 'wp_login', 'redirect_to_user_blog', 10, 2 );
+
+function send_email_reminder(){
+	if (get_option('last_email_reminder') !== false) {
           $datediff = $now - strtotime($blog->last_updated);
 
           $blog->daysdiff = round($datediff / (60 * 60 * 24));
@@ -35,3 +64,4 @@ if (get_option('last_email_reminder') !== false) {
 	  // set email reminder
       		$now = time(); // or your date as well
             $blog->last_email_reminder = get_option('last_email_reminder');
+}

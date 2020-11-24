@@ -7,17 +7,18 @@ function clean($string)
     return trim($string); // Removes special chars.
 }
 
-function torque_hello_world_shortcode($atts)
+function showuserblog($atts)
 {
     $a = shortcode_atts(array(
-    'name' => 'world'
-  ), $atts);
+		'name' => 'world'
+	), $atts);
     // return "Hello ' . $a['name'] . !";
-  $user_id = get_current_user_id(); // get ID
-  $user_blogs = get_blogs_of_user($user_id);
-    if (!is_user_logged_in()) {
-        echo do_shortcode('[frm-login show_lost_password="1"]');
-    } else if (count($user_blogs) == 1) {
+	$user_id = get_current_user_id(); // get ID
+	$user_blogs = get_blogs_of_user($user_id);
+    if ( !is_user_logged_in() ) {
+       auth_redirect();
+	}
+	if (count($user_blogs) == 1) {
         foreach ($user_blogs as $blog) {
             wp_redirect($blog->siteurl);
         }
@@ -32,7 +33,7 @@ function torque_hello_world_shortcode($atts)
         echo "<a href='".site_url('/register')."'>Click here to register a site</a>";
     }
 }
-add_shortcode('helloworld', 'torque_hello_world_shortcode');
+add_shortcode('showuserblog', 'showuserblog');
 
 function utmwebmaster_checkuserexist_shortcode($atts)
 {

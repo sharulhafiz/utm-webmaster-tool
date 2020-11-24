@@ -11,8 +11,8 @@ function my_api_custom_route_sites()
 	}
 	
 	$args = array(
-		'public'    => 1, // I only want the sites marked Public
-		'archived'  => 0,
+		//'public'    => 1, // I only want the sites marked Public
+		//'archived'  => 0,
 		'mature'    => 0,
 		'spam'      => 0,
 		'deleted'   => 0,
