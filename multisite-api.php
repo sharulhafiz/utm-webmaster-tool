@@ -1,4 +1,5 @@
 <?php
+// To fetch list of websites using https://people.utm.my/wp-json/wp/v2/sites?limit=9999
 function my_api_custom_route_sites()
 {
 	$limit = $_GET['limit'];

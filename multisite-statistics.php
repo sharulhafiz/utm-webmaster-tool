@@ -1,6 +1,8 @@
 <?php
+// ini_set("memory_limit","512M");
 // multisite statistics
 function multisite_statistics() {
+	$total_sites_post_page = $total_sites_diskusage = 0;
 	esc_html_e( 'UTM Webmaster Site Statistics', 'textdomain' );
 	echo "<script src='//cdn.datatables.net/1.10.19/js/jquery.dataTables.min.js'></script>";
 	// echo '<link rel="stylesheet" href="'.utm_webmaster_plugin_url.'style.css" type="text/css" media="all">';
@@ -82,9 +84,27 @@ function multisite_statistics() {
 			$usercount = count_users();
 			$blog->usercount = (int)$usercount['total_users'];
 
-
 			// https://codex.wordpress.org/WPMU_Functions/get_blog_details
 			$blog->last_updated = date("Y-m-d", strtotime(get_blog_details($blog->blog_id)->last_updated));
+
+			// list of plugins - 8 dec 2020
+			// https://gist.github.com/damiencarbery/16b329aa67c801356d6b2a35513cc09d
+			$the_plugs = get_blog_option($blog->blog_id, 'active_plugins'); 
+			// printf('<hr /><h4><strong>SITE</strong>: <a href="%s" title="Go to the Dashboard for %s">%s</a></h4>', get_admin_url( $blog->blog_id), get_blog_option($blog->blog_id, 'blogname'), get_blog_option($blog->blog_id, 'blogname'));
+			$pluginlist = '<ul>';
+			foreach($the_plugs as $key => $value) {
+				$plugin_data = get_plugin_data( WP_PLUGIN_DIR.'/'.$value );
+				$pluginlist .= '<li>'. $plugin_data['Name'] .' '. $value .'</li>';
+				// disable a plugin
+				if($blog->blog_id == 256){
+					switch_to_blog( $blog->blog_id );
+					deactivate_plugins('wordpress-seo-premium/wp-seo-premium.php');
+					restore_current_blog();
+				}
+				
+			}
+			$pluginlist .= '</ul>';
+			$blog->pluginlist = $pluginlist;
 
 			array_push($blogs_info,$blog);
 		} // close FOREACH
@@ -129,7 +149,7 @@ function multisite_statistics() {
 		var each = '';
 		for ( i=0; i < blogs_info.length; i++) {
 			each = blogs_info[i];
-			$("#sort tbody").append("<tr><td>"+each['blog_id']+"</td> <td><a target='_blank' href='http://"+each['domain']+each['path']+"'>"+each['domain']+each['path']+"</a> <a class='row-actions' target='_blank' href='/wp-admin/network/site-info.php?id="+each['blog_id']+"'>Edit</a></td> <td>"+each['comments']+"</td> <td>"+each['attachments']+"</td> <td>"+each['post']+"</td> <td>"+each['page']+"</td> <td>"+each['postpage']+"</td> <td>"+each['diskusage']+"</td><td>"+Number(each['usercount'])+"</td><td>"+each['last_updated']+"</td> </tr>");
+			$("#sort tbody").append("<tr><td>"+each['blog_id']+"</td> <td><a target='_blank' href='http://"+each['domain']+each['path']+"'>"+each['domain']+each['path']+"</a> <a class='row-actions' target='_blank' href='/wp-admin/network/site-info.php?id="+each['blog_id']+"'>Edit</a><br />"+each['pluginlist']+"</td> <td>"+each['comments']+"</td> <td>"+each['attachments']+"</td> <td>"+each['post']+"</td> <td>"+each['page']+"</td> <td>"+each['postpage']+"</td> <td>"+each['diskusage']+"</td><td>"+Number(each['usercount'])+"</td><td>"+each['last_updated']+"</td> </tr>");
 	}
 	// new Tablesort(document.getElementById('sort'));
 	$(document).ready( function () {
