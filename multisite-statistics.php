@@ -59,9 +59,9 @@ function multisite_statistics() {
 			$sql = "SELECT ID FROM " . $table . " WHERE post_type='page'";
 			$fivesdrafts = $wpdb->get_col($sql);
 			$blog->page = count($fivesdrafts);
-      // end count page
+      		// end count page
 
-      // get disk usage
+      		// get disk usage
 			// Switch to a blog
 			switch_to_blog( $blog->blog_id );
 
@@ -85,7 +85,13 @@ function multisite_statistics() {
 			$blog->usercount = (int)$usercount['total_users'];
 
 			// https://codex.wordpress.org/WPMU_Functions/get_blog_details
-			$blog->last_updated = date("Y-m-d", strtotime(get_blog_details($blog->blog_id)->last_updated));
+			$last_updated = date("Y-m-d", strtotime(get_blog_details($blog->blog_id)->last_updated));
+			// date in last 3 years
+			$last3years = date("Y-m-d", strtotime("-3 years"));
+			if($last_updated < $last3years){
+				$last_updated = '<span style="color:red;">'.$last_updated.'</span>';
+			}
+			$blog->last_updated = $last_updated;
 
 			// list of plugins - 8 dec 2020
 			// https://gist.github.com/damiencarbery/16b329aa67c801356d6b2a35513cc09d

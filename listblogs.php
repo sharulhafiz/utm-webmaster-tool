@@ -18,7 +18,7 @@ function unarchiveblog()
 			$wpdb->update(
 				$wpdb->blogs,
 				array(
-					'public' => 0,
+					'public' => 1,
 					'archived' => 0,
 				),
 				array(
@@ -26,25 +26,25 @@ function unarchiveblog()
 				)
 			);
 			switch_to_blog($blog_id);
-			echo '<a href="'. get_bloginfo('url') .'">' . get_bloginfo('url') . '</a> has been unarchived'; //https://developer.wordpress.org/reference/functions/get_bloginfo/
+			echo '<a href="' . get_bloginfo('url') . '">' . get_bloginfo('url') . '</a> has been unarchived'; //https://developer.wordpress.org/reference/functions/get_bloginfo/
+			echo 'Blog ' . $blog_id . ' was last updated ' . get_blog_status($blog_id, 'last updated') . '<br>';
 		} else {
 			switch_to_blog($blog_id);
-			echo '<a href="' . get_bloginfo('url') . '">' . get_bloginfo('url') . '</a> was unarchived';
+			echo '<a href="' . get_bloginfo('url') . '">' . get_bloginfo('url') . '</a> was not archived';
 		}
 	}
-	// echo $blog_id . " unarchived. ";
-	// echo 'Blog '.$blog_id.' was last updated '.get_blog_status( $blog_id, $preference );
-
 }
+
 function utmwebmaster_listblogs()
 {
 	unarchiveblog();
 	// esc_html_e('UTM Webmaster Site Statistics', 'textdomain');
-	echo "<script src='//cdn.datatables.net/1.10.22/js/jquery.dataTables.min.js'></script>";
+	echo "<script src='//cdn.datatables.net/1.13.1/js/jquery.dataTables.min.js'></script>";
 	// echo '<link rel="stylesheet" href="'.utm_webmaster_plugin_url.'style.css" type="text/css" media="all">';
-	echo '<link rel="stylesheet" href="//cdn.datatables.net/1.10.22/css/jquery.dataTables.min.css" type="text/css" media="all">';
+	echo '<link rel="stylesheet" href="//cdn.datatables.net/1.13.1/css/jquery.dataTables.min.css" type="text/css" media="all">';
 	global $wpdb;
-	$blogquery = "SELECT blog_id, domain, path FROM `" . $wpdb->blogs . "`";
+	$total_sites_post_page = $i = 0;
+	$blogquery = "SELECT blog_id, domain, path FROM `" . $wpdb->blogs . "` WHERE archived = 1 ORDER BY last_updated";
 	$blogs = $wpdb->get_results($blogquery);
 	if ($blogs) {
 		$blogs_active = array();
@@ -75,26 +75,21 @@ function utmwebmaster_listblogs()
 			// $blog->attachments = count($fivesdrafts);
 			// end count attachments
 
-			// count post
+			// Set table prefix
 			if ($blog->blog_id == '1') {
 				$table = $wpdb->base_prefix . 'posts';
 				continue;
 			} else {
 				$table = $wpdb->base_prefix . $blog->blog_id . '_posts';
 			}
-
+			
+			// count post
 			$sql = "SELECT ID FROM " . $table . " WHERE post_type='post'";
 			$fivesdrafts = $wpdb->get_col($sql);
 			$blog->post = count($fivesdrafts);
 			// end count post
 
 			// count page
-			if ($blog->blog_id == '1') {
-				$table = $wpdb->base_prefix . 'posts';
-			} else {
-				$table = $wpdb->base_prefix . $blog->blog_id . '_posts';
-			}
-
 			$sql = "SELECT ID FROM " . $table . " WHERE post_type='page'";
 			$fivesdrafts = $wpdb->get_col($sql);
 			$blog->page = count($fivesdrafts);
@@ -113,43 +108,45 @@ function utmwebmaster_listblogs()
 
 			// sum post + page
 			$blog->postpage = $blog->post + $blog->page;
-			@$total_sites_post_page += $blog->postpage;
+			$total_sites_post_page += $blog->postpage;
 
 			// https://codex.wordpress.org/WPMU_Functions/get_blog_details
-			$blog->last_updated = date("Y-m-d", strtotime(get_blog_details($blog->blog_id)->last_updated));
-			$datediff = $now - strtotime($blog->last_updated);
-			$blog->daysdiff = round($datediff / (60 * 60 * 24));
-			if ($blog->daysdiff > 365) {
-				array_push($blogs_archived, $blog);
-				if (isset($_GET['archive'])) {
-					$wpdb->update(
-						$wpdb->blogs,
-						array(
-							'public' => 0,
-							'archived' => 1,
-						),
-						array(
-							'blog_id' => $blog->blog_id,
-						)
-					);
-				}
-			} else if ($blog->daysdiff < 365) {
-				array_push($blogs_active, $blog);
-				if (isset($_GET['publicactivesite'])) {
-					$wpdb->update(
-						$wpdb->blogs,
-						array(
-							'public' => 1,
-							'archived' => 0,
-						),
-						array(
-							'blog_id' => $blog->blog_id,
-						)
-					);
-				}
-			}
+			// $blog->last_updated = date("Y-m-d", strtotime(get_blog_details($blog->blog_id)->last_updated));
+			// $now = new DateTime();
+			// $datediff = strtotime((string) $now) - strtotime($blog->last_updated);
+			// $blog->daysdiff = round($datediff / (60 * 60 * 24));
+			// if ($blog->daysdiff > 365) {
+			// 	array_push($blogs_archived, $blog);
+			// 	if (isset($_GET['archive'])) {
+			// 		$wpdb->update(
+			// 			$wpdb->blogs,
+			// 			array(
+			// 				'public' => 0,
+			// 				'archived' => 1,
+			// 			),
+			// 			array(
+			// 				'blog_id' => $blog->blog_id,
+			// 			)
+			// 		);
+			// 	}
+			// } else if ($blog->daysdiff < 365) {
+			// 	array_push($blogs_active, $blog);
+			// 	if (isset($_GET['publicactivesite'])) {
+			// 		$wpdb->update(
+			// 			$wpdb->blogs,
+			// 			array(
+			// 				'public' => 1,
+			// 				'archived' => 0,
+			// 			),
+			// 			array(
+			// 				'blog_id' => $blog->blog_id,
+			// 			)
+			// 		);
+			// 	}
+			// }
 			$i++;
 		} // close FOREACH
+		switch_to_blog(1);
 		echo "<br><a href='/blogs'>Active (" . count($blogs_active) . ")</a>";
 		echo " | <a href='?archived'>Archived (" . count($blogs_archived) . ")</a>";
 
@@ -162,17 +159,23 @@ function utmwebmaster_listblogs()
 
 	} // close IF 
 	?>
-
 	<script>
-		$ = jQuery;
+		if (typeof jQuery == 'undefined') {
+			var headTag = document.getElementsByTagName("head")[0];
+			var jqTag = document.createElement('script');
+			jqTag.type = 'text/javascript';
+			jqTag.src = 'https://cdn.jsdelivr.net/npm/jquery@3.6.1/dist/jquery.min.js';
+			jqTag.onload = myJQueryCode;
+			headTag.appendChild(jqTag);
+		}
+		if ($ == undefined) {
+			var $ = jQuery;
+		}
 		$(document).ready(function() {
-			var each = '';
-			$(document).ready(function() {
-				$('#sort').DataTable({
-					"order": [
-						[3, "desc"]
-					]
-				});
+			$('#sort').DataTable({
+				"order": [
+					[3, "desc"]
+				]
 			});
 		});
 	</script>
@@ -203,9 +206,9 @@ function utmwebmaster_listblogs()
 		</tbody>
 	</table>
 	<script>
-		$('#sort').on('click', 'tbody tr', function() {
-			window.location.href = $(this).data('href');
-		});
+		// $('#sort').on('click', 'tbody tr', function() {
+		// 	window.location.href = $(this).data('href');
+		// });
 		$("tr").hover(function() {
 			$(this).css("background-color", "#d9d9d9");
 		}, function() {
