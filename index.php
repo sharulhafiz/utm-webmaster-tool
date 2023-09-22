@@ -1,16 +1,11 @@
 <?php
-
-/**
- * @package utm-webmaster-tool
- * @version 4
- */
 /*
 Plugin Name: UTM Webmaster Tool
 Plugin URI: http://corporateaffairs.utm.my
 Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
-Version: 5.1
+Version: 5.5
 Author URI: http://corporateaffairs.utm.my
 */
 require_once ABSPATH . 'wp-admin/includes/ms.php';
@@ -20,8 +15,8 @@ include(plugin_dir_path(__FILE__) . 'multisite-api.php');
 include(plugin_dir_path(__FILE__) . 'multisite-statistics.php');
 include(plugin_dir_path(__FILE__) . '/modules/googleanalytics.php');
 include(plugin_dir_path(__FILE__) . '/modules/bulkdeleteuser.php');
-// include( plugin_dir_path( __FILE__ ) . 'jkncr.php');
-// include_once(ABSPATH . 'wp-includes/pluggable.php');
+include(plugin_dir_path(__FILE__) . '/modules/migrate-upload.php');
+include(plugin_dir_path(__FILE__) . '/modules/allinonemigration.php');
 
 if (!class_exists('WP_List_Table')) {
 	require_once(ABSPATH . 'wp-admin/includes/class-wp-list-table.php');
@@ -54,6 +49,7 @@ function register_admin_menu()
 	);
 	add_submenu_page('multisite_statistics', 'Orphan Users', 'Orphan Users', 'manage_options', 'delete_orphan_user', 'delete_orphan_user');
 	add_submenu_page('multisite_statistics', 'Add To Blogs', 'Add To Blogs', 'manage_options', 'add_user_to_blogs', 'add_user_to_blogs');
+	add_submenu_page('multisite_statistics', 'Network Admin', 'Network Admin', 'manage_options', 'change_network_admin_email', '');
 }
 add_action('network_admin_menu', 'register_admin_menu');
 
@@ -130,14 +126,30 @@ function add_user_to_blogs()
 
 // Redirect users to their own blog
 add_action('init',  function(){
-	$currentblogid = get_current_blog_id();
-	$user_id = get_current_user_id(); // get ID
-	$user_blogs = get_blogs_of_user($user_id);
-	if (is_super_admin() != true) {
-		if ($currentblogid == 1) {
-			if (is_admin()) {
-				foreach ($user_blogs as $blog) {
-					wp_redirect($blog->siteurl);
+	// if current domain is people.utm.my
+	if ($_SERVER['HTTP_HOST'] == 'people.utm.my') {
+		$currentblogid = get_current_blog_id();
+		$user_id = get_current_user_id(); // get ID
+		$user_blogs = get_blogs_of_user($user_id);
+		if (is_super_admin() != true) {
+			if ($currentblogid == 1) {
+				if (is_admin()) {
+					foreach ($user_blogs as $blog) {
+						// if site is archived, unarchived it
+						if ($blog->archived == 1) {
+							update_blog_status($blog->userblog_id, 'archived', 0);
+							// email to webmaster@utm.my about this
+							$to = "webmaster@utm.my";
+							$subject = "Blog Unarchived";
+							$txt = "Blog " . $blog->domain . $blog->path . " unarchived by " . $user_id;
+							// get user email
+							$user_info = get_userdata($user_id);
+							$from = $user_info->user_email;
+							$headers = "From: " . $from . "\r\n";
+							mail($to, $subject, $txt, $headers);
+						}
+						wp_redirect($blog->siteurl);
+					}
 				}
 			}
 		}

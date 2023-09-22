@@ -1,7 +1,6 @@
 <?php
 add_action('wp_head', 'wpb_add_googleanalytics');
-function wpb_add_googleanalytics()
-{ 
+function wpb_add_googleanalytics(){ 
   if (is_user_logged_in()) {
     return;
   }
