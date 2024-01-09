@@ -1,9 +1,7 @@
 <?php
-add_action('wp_head', 'wpb_add_googleanalytics');
+add_action('wp_enqueue_scripts', 'wpb_add_googleanalytics');
 function wpb_add_googleanalytics(){ 
-  if (is_user_logged_in()) {
-    return;
-  }
+  // Google Analytics
   ?>
 
   <!-- Google tag (gtag.js) -->
@@ -17,6 +15,8 @@ function wpb_add_googleanalytics(){
     gtag('js', new Date());
 
     gtag('config', 'G-N3HJW8G3P7');
+
+    console.log('Google Analytics is loaded');
   </script>
 
 <?php } ?>

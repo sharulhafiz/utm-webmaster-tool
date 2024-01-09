@@ -13,52 +13,35 @@ function multisite_statistics()
 	if ($blogs) {
 		$blogs_info = array();
 		foreach ($blogs as $blog) {
-			// count comments
+
 			// set table prefix
 			if ($blog->blog_id == '1') {
-				$table = $wpdb->base_prefix . 'comments';
-				allinonemigration_updatepath();
+				$tableprefix = $wpdb->base_prefix;
+				// allinonemigration_updatepath();
 			} else {
-				$table = $wpdb->base_prefix . $blog->blog_id . '_comments';
+				$tableprefix = $wpdb->base_prefix . $blog->blog_id . '_';
 			}
-			$sql = "SELECT comment_ID FROM " . $table;
+
+			// count comments
+			$sql = "SELECT comment_ID FROM " . $tableprefix . "comments";
 			$fivesdrafts = $wpdb->get_col($sql);
 			$blog->comments = count($fivesdrafts);
 			// end count comments
 
 			// count attachments
-			// set table prefix
-			if ($blog->blog_id == '1') {
-				$table = $wpdb->base_prefix . 'posts';
-			} else {
-				$table = $wpdb->base_prefix . $blog->blog_id . '_posts';
-			}
-
-			$sql = "SELECT ID FROM " . $table . " WHERE post_type='attachment'";
+			$sql = "SELECT ID FROM " . $tableprefix . "posts WHERE post_type='attachment'";
 			$fivesdrafts = $wpdb->get_col($sql);
 			$blog->attachments = count($fivesdrafts);
 			// end count attachments
 
 			// count post
-			if ($blog->blog_id == '1') {
-				$table = $wpdb->base_prefix . 'posts';
-			} else {
-				$table = $wpdb->base_prefix . $blog->blog_id . '_posts';
-			}
-
-			$sql = "SELECT ID FROM " . $table . " WHERE post_type='post'";
+			$sql = "SELECT ID FROM " . $tableprefix . "posts WHERE post_type='post'";
 			$fivesdrafts = $wpdb->get_col($sql);
 			$blog->post = count($fivesdrafts);
 			// end count post
 
 			// count page
-			if ($blog->blog_id == '1') {
-				$table = $wpdb->base_prefix . 'posts';
-			} else {
-				$table = $wpdb->base_prefix . $blog->blog_id . '_posts';
-			}
-
-			$sql = "SELECT ID FROM " . $table . " WHERE post_type='page'";
+			$sql = "SELECT ID FROM " . $tableprefix . "posts WHERE post_type='page'";
 			$fivesdrafts = $wpdb->get_col($sql);
 			$blog->page = count($fivesdrafts);
 			// end count page
@@ -118,17 +101,13 @@ function multisite_statistics()
 
 			// get upload path - 13 sep 2023
 			$upload_path = get_option('upload_path');
-			if($upload_path != ''){
-				update_option('upload_path', '');
+			if ($upload_path != '') {
 				// if upload path contain 'files' string, run migration
-				if(strpos($upload_path, 'files') !== false){
+				if (strpos($upload_path, 'files') !== false) {
 					run_migration($blog->blog_id);
 				}
 			}
 			$blog->upload_path = 'Upload: ' . get_option('upload_path');
-
-			// get list of user roles available to be selected
-			
 
 			array_push($blogs_info, $blog);
 		} // close FOREACH
@@ -144,10 +123,8 @@ function multisite_statistics()
 		$i = 0;
 		$j = 0;
 		foreach ($users as $user) :
-
 			$user_login = $user->user_login; // get login
 			$user_id = $user->ID; // get ID
-
 			// check for name
 			if (($user_login != 'deleteduser')) {
 				$user_blogs = get_blogs_of_user($user_id); // get related sites

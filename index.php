@@ -1,22 +1,27 @@
 <?php
 /*
 Plugin Name: UTM Webmaster Tool
-Plugin URI: http://corporateaffairs.utm.my
+Plugin URI: http://digital.utm.my/web
 Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
-Version: 5.5
-Author URI: http://corporateaffairs.utm.my
+Version: 5.17
+Author URI: http://people.utm.my/sharulhafiz
 */
 require_once ABSPATH . 'wp-admin/includes/ms.php';
 include(plugin_dir_path(__FILE__) . 'shortcodes.php');
 include(plugin_dir_path(__FILE__) . 'listblogs.php');
 include(plugin_dir_path(__FILE__) . 'multisite-api.php');
 include(plugin_dir_path(__FILE__) . 'multisite-statistics.php');
-include(plugin_dir_path(__FILE__) . '/modules/googleanalytics.php');
-include(plugin_dir_path(__FILE__) . '/modules/bulkdeleteuser.php');
-include(plugin_dir_path(__FILE__) . '/modules/migrate-upload.php');
-include(plugin_dir_path(__FILE__) . '/modules/allinonemigration.php');
+include(plugin_dir_path(__FILE__) . 'modules/googleanalytics.php');
+include(plugin_dir_path(__FILE__) . 'modules/bulkdeleteuser.php');
+include(plugin_dir_path(__FILE__) . 'modules/migrate-upload.php');
+include(plugin_dir_path(__FILE__) . 'modules/fixuploadpath.php');
+include(plugin_dir_path(__FILE__) . 'modules/fixuserrole.php');
+include(plugin_dir_path(__FILE__) . 'function.php');
+include(plugin_dir_path(__FILE__) . 'modules/comment_anti_spam/comment_anti_spam.php');
+include(plugin_dir_path(__FILE__) . 'modules/people/redirect_to_site.php');
+include(plugin_dir_path(__FILE__) . 'modules/disableplugin.php');
 
 if (!class_exists('WP_List_Table')) {
 	require_once(ABSPATH . 'wp-admin/includes/class-wp-list-table.php');
@@ -26,14 +31,14 @@ $url = plugin_dir_path(__FILE__);
 define("utm_webmaster_plugin_path", plugin_dir_path(__FILE__));
 define("utm_webmaster_plugin_url", WP_PLUGIN_URL . "/" . basename($url) . "/");
 
-// register hook
-register_activation_hook(__FILE__, 'notice_to_single_site_wp');
-function notice_to_single_site_wp()
-{
-	if (is_multisite() == False) {
-		echo "FOR MULTISITE ONLY!";
-	}
-}
+// // register hook
+// register_activation_hook(__FILE__, 'notice_to_single_site_wp');
+// function notice_to_single_site_wp()
+// {
+// 	if (is_multisite() == False) {
+// 		echo "FOR MULTISITE ONLY!";
+// 	}
+// }
 
 // add to menu in network
 function register_admin_menu()
@@ -44,114 +49,17 @@ function register_admin_menu()
 		'manage_options',
 		'multisite_statistics',
 		'multisite_statistics',
-		'',
 		25
 	);
 	add_submenu_page('multisite_statistics', 'Orphan Users', 'Orphan Users', 'manage_options', 'delete_orphan_user', 'delete_orphan_user');
 	add_submenu_page('multisite_statistics', 'Add To Blogs', 'Add To Blogs', 'manage_options', 'add_user_to_blogs', 'add_user_to_blogs');
 	add_submenu_page('multisite_statistics', 'Network Admin', 'Network Admin', 'manage_options', 'change_network_admin_email', '');
+	add_submenu_page('multisite_statistics', 'Disable Plugin', 'Disable Plugin', 'manage_options', 'network_deactivation_page', 'network_deactivation_page');
 }
 add_action('network_admin_menu', 'register_admin_menu');
 
-
-// Bulk add user to blogs
-function add_user_to_blogs()
-{
-	global $wpdb;
-
-	echo "<div class='wrap'>";
-	echo "<h1>Add User to blogs</h1>";
-
-	if (isset($_POST['username']) && isset($_POST['blogpath'])) {
-		$user = get_user_by('login', $_POST['username']);
-		if ($user == false) {
-			echo $_POST['username'] . " not found";
-		} else {
-			// explode
-			$blogpath = $_POST['blogpath'];
-			$blogpath = explode(PHP_EOL, $blogpath);
-
-			$blogs = $wpdb->get_results("SELECT blog_id, domain, path FROM `" . $wpdb->blogs . "` ORDER BY blog_id DESC");
-			if ($blogs) {
-				$blogs_info = array();
-				foreach ($blogs as $blog) {
-					foreach ($blogpath as $path) {
-						$path = str_replace("http://", "", $path);
-						$path = str_replace("https://", "", $path);
-						$path = explode("/", $path);
-						$path = "/" . $path[1] . "/";
-						// echo $path . "<br>";
-						// echo $blog->path;
-						if (stripos($blog->path, $path) !== false) {
-							$slug = $blog->path;
-							$id = get_id_from_blogname($slug);
-
-							//ADD USER ID TO BLOG ID AS AN ADMINISTRATOR
-							$blog_id = $blog->blog_id;
-							$role = 'administrator';
-							add_user_to_blog($blog_id, $user->ID, $role);
-							$url = get_site_url($blog->blog_id);
-							echo $user->user_login . " added to " . $url . "<br>";
-						} else {
-							// echo "error<br>";
-						}
-					}
-					// break;
-				}
-			}
-		}
-	}
-?>
-	<form action="" id="adduser" method="post" novalidate="novalidate">
-		<table class="form-table">
-			<tbody>
-				<tr class="form-field form-required">
-					<th scope="row"><label for="username">Username</label></th>
-					<td><input type="text" class="regular-text" name="username" id="username" autocapitalize="none" autocorrect="off" maxlength="60" value="<?php echo $_POST['username']; ?>"></td>
-				</tr>
-				<tr class="form-field form-required">
-					<th scope="row"><label for="blogpath">Blog Path</label></th>
-					<td><textarea class="regular-text" name="blogpath" id="blogpath" rows="10" cols="30"><?php echo $_POST['blogpath']; ?></textarea><br></td>
-				</tr>
-				<tr class="form-field">
-					<td colspan="2">User will be added to the founded blogs.</td>
-				</tr>
-			</tbody>
-		</table>
-		<p class="submit"><input type="submit" name="add-user" id="add-user" class="button button-primary" value="Add User"></p>
-	</form>
-<?php
-	echo "</div>";
+// add to menu in site
+function register_site_admin_menu(){
+	add_submenu_page('tools.php', 'Fix User Role', 'Fix User Role', 'manage_options', 'restore_default_user_roles', 'restore_default_user_roles');
 }
-
-// Redirect users to their own blog
-add_action('init',  function(){
-	// if current domain is people.utm.my
-	if ($_SERVER['HTTP_HOST'] == 'people.utm.my') {
-		$currentblogid = get_current_blog_id();
-		$user_id = get_current_user_id(); // get ID
-		$user_blogs = get_blogs_of_user($user_id);
-		if (is_super_admin() != true) {
-			if ($currentblogid == 1) {
-				if (is_admin()) {
-					foreach ($user_blogs as $blog) {
-						// if site is archived, unarchived it
-						if ($blog->archived == 1) {
-							update_blog_status($blog->userblog_id, 'archived', 0);
-							// email to webmaster@utm.my about this
-							$to = "webmaster@utm.my";
-							$subject = "Blog Unarchived";
-							$txt = "Blog " . $blog->domain . $blog->path . " unarchived by " . $user_id;
-							// get user email
-							$user_info = get_userdata($user_id);
-							$from = $user_info->user_email;
-							$headers = "From: " . $from . "\r\n";
-							mail($to, $subject, $txt, $headers);
-						}
-						wp_redirect($blog->siteurl);
-					}
-				}
-			}
-		}
-	}
-});
+add_action('admin_menu', 'register_site_admin_menu');
