@@ -6,6 +6,12 @@ function utm_add_submenu_page()
 add_action('admin_menu', 'utm_add_submenu_page');
 
 function utm_fixuploadpath(){
+	// check if multisite
+	if (is_multisite() === false) {
+		echo 'This is only for multisite';
+		return;
+	}
+
 	// Ensure this code runs only for super admins in the network admin area
 	if (strpos($_SERVER['HTTP_HOST'], 'www.utm.my') !== false or strpos($_SERVER['HTTP_HOST'], 'news.utm.my') !== false) {
 		global $wpdb;
@@ -401,6 +407,11 @@ function utm_recursive_str_replace($search, $replace, $subject, $depth = 0)
 
 // Admin Notice
 function utm_admin_notice_fix_path(){
+	// check if multisite
+	if (is_multisite() === false) {
+		return;
+	}
+
 	// if current page is fix media page, do nothing
 	if (strpos($_SERVER['REQUEST_URI'], 'fix-media') !== false) return;
 

@@ -2,6 +2,11 @@
 // callback function
 function redirect_to_user_blog($user_login, WP_User $user)
 {
+	// check if multisite
+	if (is_multisite() === false) {
+		return;
+	}
+
 	$blog_id = get_current_blog_id();
 	if (is_main_site($blog_id)) {
 		$user_id = get_current_user_id(); // get ID

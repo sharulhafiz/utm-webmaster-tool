@@ -71,14 +71,27 @@ function multisite_statistics()
 
 			// https://codex.wordpress.org/WPMU_Functions/get_blog_details
 			$last_updated = date("Y-m-d", strtotime(get_blog_details($blog->blog_id)->last_updated));
-			// date in last 3 years
-			$last3years = date("Y-m-d", strtotime("-3 years"));
-			if ($last_updated < $last3years) {
-				$last_updated = '<span style="color:red;">' . $last_updated . '</span>';
-				// archive current blog by updating database
-				$wpdb->update($wpdb->blogs, array('archived' => 1), array('blog_id' => $blog->blog_id));
+			$last_updated_formatted = $last_updated;
+			$updateduration_3_years = date("Y-m-d", strtotime("-3 years"));
+			$updateduration_5_years = date("Y-m-d", strtotime("-5 years"));
+
+			$changes = array();
+
+			if ($last_updated < $updateduration_3_years) {
+				$last_updated_formatted = '<span style="color:orange;">' . $last_updated . '</span>';
+				$changes = array('archived' => 1, 'public' => 0, 'deleted' => 0);
 			}
-			$blog->last_updated = $last_updated;
+
+			if ($last_updated < $updateduration_5_years) {
+				$last_updated_formatted = '<span style="color:red;">' . $last_updated . '</span>';
+				$changes = array('archived' => 0, 'public' => 0, 'deleted' => 1);
+			}
+
+			if (!empty($changes)) {
+				$wpdb->update($wpdb->blogs, $changes, array('blog_id' => $blog->blog_id));
+			}
+
+			$blog->last_updated = $last_updated_formatted;
 
 			// list of plugins - 8 dec 2020
 			// https://gist.github.com/damiencarbery/16b329aa67c801356d6b2a35513cc09d
@@ -98,16 +111,6 @@ function multisite_statistics()
 			}
 			$pluginlist .= '</ul>';
 			$blog->pluginlist = $pluginlist;
-
-			// get upload path - 13 sep 2023
-			$upload_path = get_option('upload_path');
-			if ($upload_path != '') {
-				// if upload path contain 'files' string, run migration
-				if (strpos($upload_path, 'files') !== false) {
-					run_migration($blog->blog_id);
-				}
-			}
-			$blog->upload_path = 'Upload: ' . get_option('upload_path');
 
 			array_push($blogs_info, $blog);
 		} // close FOREACH
@@ -150,7 +153,7 @@ function multisite_statistics()
 			var each = '';
 			for (i = 0; i < blogs_info.length; i++) {
 				each = blogs_info[i];
-				$("#sort tbody").append("<tr><td>" + each['blog_id'] + "</td> <td><a target='_blank' href='http://" + each['domain'] + each['path'] + "'>" + each['domain'] + each['path'] + "</a> <a class='row-actions' target='_blank' href='/wp-admin/network/site-info.php?id=" + each['blog_id'] + "'>Edit</a><br />" + each['pluginlist'] + "<br />" + each['upload_path'] + "</td> <td>" + each['comments'] + "</td> <td>" + each['attachments'] + "</td> <td>" + each['post'] + "</td> <td>" + each['page'] + "</td> <td>" + each['postpage'] + "</td> <td>" + each['diskusage'] + "</td><td>" + Number(each['usercount']) + "</td><td>" + each['last_updated'] + "</td> </tr>");
+				$("#sort tbody").append("<tr><td>" + each['blog_id'] + "</td> <td><a target='_blank' href='http://" + each['domain'] + each['path'] + "'>" + each['domain'] + each['path'] + "</a> <a class='row-actions' target='_blank' href='/wp-admin/network/site-info.php?id=" + each['blog_id'] + "'>Edit</a><br />" + each['pluginlist'] + "<br />" + "</td> <td>" + each['comments'] + "</td> <td>" + each['attachments'] + "</td> <td>" + each['post'] + "</td> <td>" + each['page'] + "</td> <td>" + each['postpage'] + "</td> <td>" + each['diskusage'] + "</td><td>" + Number(each['usercount']) + "</td><td>" + each['last_updated'] + "</td> </tr>");
 			}
 			// new Tablesort(document.getElementById('sort'));
 			$(document).ready(function() {
