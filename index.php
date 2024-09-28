@@ -5,7 +5,7 @@ Plugin URI: http://digital.utm.my/web
 Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
-Version: 5.19
+Version: 5.21
 Author URI: http://people.utm.my/sharulhafiz
 */
 require_once ABSPATH . 'wp-admin/includes/ms.php';
@@ -22,8 +22,12 @@ include(plugin_dir_path(__FILE__) . 'function.php');
 include(plugin_dir_path(__FILE__) . 'modules/comment_anti_spam/comment_anti_spam.php');
 include(plugin_dir_path(__FILE__) . 'modules/people/redirect_to_site.php');
 include(plugin_dir_path(__FILE__) . 'modules/disableplugin.php');
-include(plugin_dir_path(__FILE__) . 'modules/staffapi.php');
+include(plugin_dir_path(__FILE__) . 'modules/staffapi.php'); // only load on registrar.utm.my domain
 include(plugin_dir_path(__FILE__) . 'modules/bulk-add-user.php');
+include_once(plugin_dir_path(__FILE__) . 'modules/postExport.php'); // Export post to csv - 18 March 2024
+include_once(plugin_dir_path(__FILE__) . 'modules/nlp-to-ics.php'); // Convert natural text into .ics file
+include_once(plugin_dir_path(__FILE__) . 'modules/content-visibility-shortcodes.php.php'); // show content based on user - 12/8/2024
+// include_once(plugin_dir_path(__FILE__) . 'modules/popup-ads.php'); // Popup ads - 13 May 2024
 
 if (!class_exists('WP_List_Table')) {
 	require_once(ABSPATH . 'wp-admin/includes/class-wp-list-table.php');

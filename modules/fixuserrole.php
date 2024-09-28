@@ -24,14 +24,14 @@ function restore_default_user_roles()
 		$site_id = get_current_blog_id();
 	}
 
-	// Disable the input field if site ID is not main site
-	$disabled = $site_id != 1 ? "disabled" : "";
+	// Make the input field readonly if site ID is not main site
+	$readonly = $site_id != 1 ? "readonly" : "";
 
 	// Create input form
 	echo "<form action='". $url . "' method='get'>";
 	echo "<input type='hidden' name='page' value='restore_default_user_roles' />";
 	echo "<label for='site_id'>Site ID: </label>";
-	echo "<input type='text' name='site_id' value='$site_id' $disabled/>";
+	echo "<input type='text' name='site_id' value='$site_id' $readonly/>";
 	echo "<input type='submit' value='Fix user role this site' />";
 	echo "</form>";
 

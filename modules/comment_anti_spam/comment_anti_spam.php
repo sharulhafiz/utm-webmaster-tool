@@ -1,52 +1,63 @@
 <?php
 function antispam_comments_filter($commentdata)
 {
-	$email = $commentdata['comment_author_email'];
-	$domain = substr(strrchr($email, "@"), 1);
-	$allowed_domains = array('utm.my','graduate.utm.my','live.utm.my','gmail.com');
+    $email = $commentdata['comment_author_email'];
+    $domain = substr(strrchr($email, "@"), 1);
+    $allowed_domains = array('utm.my','graduate.utm.my','live.utm.my');
 
-	// Mark as spam if the email is not from allowed domains
-	if (!in_array($domain, $allowed_domains)) {
-		$commentdata['comment_approved'] = 'spam';
-		return $commentdata;
-	}
+    // Mark approved if the email is in allowed domains
+    if (in_array($domain, $allowed_domains)) {
+        return wp_set_comment_status($commentdata['comment_ID'], 'approve');
+    }
 
-	// Mark as pending if the email is from Gmail
-	if (strpos($email, 'gmail.com') !== false) {
-		// Mark as pending if the email is from Gmail
-		$commentdata['comment_approved'] = 0;
-		return $commentdata;
-	}
+    // Initial spam keywords
+    $spam_keywords = array(
+        'viagra', 'cialis', 'levitra', 'doxycycline', 'xanax', 'valium', 'ativan',
+        'klonopin', 'ambien', 'tramadol', 'prozac', 'zoloft', 'celexa', 'lexapro',
+        'effexor', 'wellbutrin', 'buspar', 'cymbalta', 'paxil', 'zyprexa', 'abilify',
+        'seroquel', 'risperdal', 'geodon', 'clozaril', 'latuda', 'invega', 'fanapt',
+        'saphris', 'asenapine', 'loxapine', 'lurasidone', 'olanzapine', 'quetiapine',
+        'risperidone', 'ziprasidone', 'aripiprazole', 'chlorpromazine', 'fluphenazine',
+        'haloperidol', 'perphenazine', 'thioridazine', 'trifluoperazine', 'casino',
+		'prednisone', 'buy', 'zithromax', 'cheap', 'shop'
+    );
 
-	// Check if file blacklist.txt exists
-	$blacklist_file = dirname(__FILE__) . '/blacklist.txt';
-	if (!file_exists($blacklist_file)) {
-		// Download from GitHub https://raw.githubusercontent.com/splorp/wordpress-comment-blacklist/master/blacklist.txt
-		$blacklist_url = 'https://raw.githubusercontent.com/splorp/wordpress-comment-blacklist/master/blacklist.txt';
-		$blacklist = file_get_contents($blacklist_url);
+    // Use transients to cache the blacklist for 12 hours
+    $blacklist = get_transient('spam_blacklist');
+    if ($blacklist === false) {
+        $blacklist_file = dirname(__FILE__) . '/blacklist.txt';
+        if (!file_exists($blacklist_file)) {
+            $blacklist_url = 'https://raw.githubusercontent.com/splorp/wordpress-comment-blacklist/master/blacklist.txt';
+            $blacklist = @file_get_contents($blacklist_url);
+            if ($blacklist !== false) {
+                file_put_contents($blacklist_file, $blacklist);
+            }
+        }
 
-		// Create the blacklist file if it doesn't exist
-		file_put_contents($blacklist_file, $blacklist);
-	}
+        if (file_exists($blacklist_file)) {
+            $blacklist = file_get_contents($blacklist_file);
+        }
 
-	// Get the blacklist file contents
-	$blacklist = file_get_contents($blacklist_file);
+        if ($blacklist !== false) {
+            $blacklist_keywords = array_filter(array_map('trim', explode("\n", $blacklist)));
+            set_transient('spam_blacklist', $blacklist_keywords, 12 * HOUR_IN_SECONDS);
+            $spam_keywords = array_merge($spam_keywords, $blacklist_keywords);
+        }
+    }
 
-	// Convert the blacklist string into an array of keywords
-	$spam_keywords = explode("\n", $blacklist);
+    // Create a single regular expression for all spam keywords
+    $spam_pattern = '/' . implode('|', array_map('preg_quote', $spam_keywords)) . '/i';
 
-	$comment_content = strtolower($commentdata['comment_content']);
+    // Convert comment content to lowercase
+    $comment_content = strtolower($commentdata['comment_content']);
 
-	foreach ($spam_keywords as $keyword) {
-		if (strpos($comment_content, $keyword) !== false) {
-			$commentdata['comment_approved'] = 'spam';
-			break;
-		}
-	}
-
-	return $commentdata;
+    // Check if the comment contains any spam keywords
+    if (preg_match($spam_pattern, $comment_content)) {
+		return wp_set_comment_status($commentdata['comment_ID'], 'spam');
+    }
 }
 add_filter('preprocess_comment', 'antispam_comments_filter', 9);
+
 
 add_action('admin_notices', 'add_scan_button');
 function add_scan_button() {
@@ -63,8 +74,11 @@ function add_scan_button() {
 
 function scan_comments_for_spam() {
 	if (isset($_GET['scan']) && $_GET['scan'] === 'true') {
-		// Get all comments that are not marked as spam
-		$comments = get_comments(array('status' => 'approve'));
+		// Get all pending comments
+		$comments = get_comments(array(
+			'status' => array('approve','0'),
+			'number' => 100,
+		));
 
 		foreach ($comments as $comment) {
 			// Prepare comment data
@@ -79,13 +93,6 @@ function scan_comments_for_spam() {
 
 			// Pass comment through the antispam filter
 			$filtered_commentdata = antispam_comments_filter($commentdata);
-
-			// If the comment was marked as spam, update its status in the database
-			if ($filtered_commentdata['comment_approved'] == 'spam') {
-				wp_set_comment_status($comment->comment_ID, 'spam');
-			} elseif ($filtered_commentdata['comment_approved'] == 0) {
-				wp_set_comment_status($comment->comment_ID, '0');
-			}
 		}
 
 		// Show a notice after scanning

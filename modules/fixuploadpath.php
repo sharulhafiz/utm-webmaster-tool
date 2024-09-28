@@ -77,13 +77,15 @@ function utm_fixuploadpath(){
 
 			// fix blogs.dir
 			try {
-				echo "Fixing row {$row['option_name']}<br>";
+				echo "Fixing row {$row['option_name']} | <a href='?page=fix-media&delete_option={$row['option_name']}'>Row error? Delete option {$row['option_name']}?</a><br>";
 				$updated_value = utm_recursive_str_replace($search, $replace, $row['option_value']);
+
+				// If there's a problem with the option, throw an exception
+				if ($updated_value === false) {
+					throw new Exception('Problem with option: ' . $row['option_name']);
+				}
 			} catch (Exception $e) {
-				// Handle the exception
-				error_log($e->getMessage());
-				// Echo a button to delete the option
-				echo "<a href='?page=fix-media&delete_option={$row['option_name']}'>Row error. Delete option {$row['option_name']}?</a>";
+				echo 'Caught exception: ',  $e->getMessage(), "\n";
 			}
 			$update_status = $wpdb->update($option_table, array('option_value' => $updated_value), array('option_id' => $row['option_id']));
 			if($update_status !== false){
@@ -414,6 +416,11 @@ function utm_admin_notice_fix_path(){
 
 	// if current page is fix media page, do nothing
 	if (strpos($_SERVER['REQUEST_URI'], 'fix-media') !== false) return;
+
+	// if in network admin
+	if (is_network_admin()) {
+		return;
+	}
 
 	global $wpdb;
 	// get option from option table where option name is fix_path_check
