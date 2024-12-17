@@ -32,8 +32,20 @@ function convert_nlp_to_ics($nlp_text) {
     END:VEVENT
     END:VCALENDAR";
 
-    // Use Open AI or any other NLP library to convert the natural language to ICS format
-    $OPENAI_API_KEY = '';
+    try {
+        // Fetch OPENAI_API_KEY from the options table
+        $OPENAI_API_KEY = get_option('openai_api_key');
+        
+        if (!$OPENAI_API_KEY) {
+            throw new Exception('OpenAI API key is not set.');
+        }
+    } catch (Exception $e) {
+        // Handle the exception (e.g., log the error, display a message to the user)
+        error_log($e->getMessage());
+        wp_die('An error occurred: ' . $e->getMessage());
+    }
+
+
     $ch = curl_init();
 
     curl_setopt($ch, CURLOPT_URL, 'https://api.openai.com/v1/chat/completions');

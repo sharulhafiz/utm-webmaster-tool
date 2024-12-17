@@ -1,0 +1,55 @@
+/* Responsive table container */
+.responsive-table {
+    width: 100%;
+    overflow-x: auto;
+}
+
+/* Table styling */
+.responsive-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+/* Table header and cell styling */
+.responsive-table th, .responsive-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+/* Table header background color */
+.responsive-table th {
+    background-color: #f2f2f2;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 600px) {
+    .responsive-table th, .responsive-table td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .responsive-table th {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+
+    .responsive-table td {
+        border: none;
+        position: relative;
+        padding-left: 50%;
+        text-align: right;
+    }
+
+    .responsive-table td:before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0;
+        width: 50%;
+        padding-left: 10px;
+        font-weight: bold;
+        text-align: left;
+    }
+}

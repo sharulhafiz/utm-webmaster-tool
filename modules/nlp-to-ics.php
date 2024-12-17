@@ -71,7 +71,7 @@ function convert_nlp_to_ics($nlp_text) {
     END:VCALENDAR";
 
     // Use Open AI or any other NLP library to convert the natural language to ICS format
-    $OPENAI_API_KEY = '';
+    $OPENAI_API_KEY = get_option('openai_api_key');
     $ch = curl_init();
 
     curl_setopt($ch, CURLOPT_URL, 'https://api.openai.com/v1/chat/completions');

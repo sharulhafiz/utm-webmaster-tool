@@ -7,84 +7,45 @@ add_action('admin_menu', 'utm_add_submenu_page');
 
 function utm_fixuploadpath(){
 	// variables
-    global $wpdb;
-    $home_url = get_home_url();
-    $current_blog_id = get_current_blog_id();
-    $posts_table = $wpdb->prefix . 'posts';
-    $postmeta_table = $wpdb->prefix . 'postmeta';
-    $option_table = $wpdb->prefix . "options";
-    $slug = get_blog_details($current_blog_id)->path;
-    $sitemeta_table = $wpdb->prefix . 'sitemeta';
-    $site_id = $current_blog_id;
-    $meta_key = 'ms_files_rewriting';
-    $meta_value = '0';
-	// blogsdir migration
-	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/blogs.dir/". $site_id . "/files";
-	$search = $blogsdir_path;
-	if ($site_id == 1){
-		$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/uploads";
-	}
-	if ($site_id != 1 && $site_id != 0 && $site_id != ""){
-		$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/uploads/sites/" . $site_id;
-	}
-	$replace = $uploaddir_path;
-    if (isset($_GET['search'])) $search = $_GET['search'];
-    if (isset($_GET['replace'])) $replace = $_GET['replace'];
-    if (isset($_GET['delete_option'])) $delete_option = $_GET['delete_option'];
-    $upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
-	if ($upload_path != ''){
-		// set upload path to default
-		$wpdb->insert($option_table, array('option_name' => 'upload_path', 'option_value' => ''));
-	}
-    $output = array();
+	global $wpdb;
+	$home_url = get_home_url();
+	$current_blog_id = get_current_blog_id();
+	$posts_table = $wpdb->prefix . 'posts';
+	$postmeta_table = $wpdb->prefix . 'postmeta';
+	$option_table = $wpdb->prefix . "options";
+	$slug = get_blog_details($current_blog_id)->path;
+	$sitemeta_table = $wpdb->prefix . 'sitemeta';
+	$site_id = $current_blog_id;
+	$meta_key = 'ms_files_rewriting';
+	$meta_value = '0';
+	if (isset($_GET['search'])) $search = $_GET['search'];
+	if (isset($_GET['replace'])) $replace = $_GET['replace'];
+	$upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
+	$output = array();
 
-    // Starting the HTML wrapper for the admin page
-    echo '<div class="wrap">';
-    echo '<h1>Fix Upload Path</h1><p>This tool is for fixing multiple issues path for this site</p>';
-    // Menus:
-    echo '<ul>';
-    echo '<li><a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
-    echo '<li><a href="?page=fix-media&delete_option=upload_url_path">Delete upload_url_path option</a></li>';
-    echo '<li><a href="?page=fix-media&msfiles=true">Set ms-files to 0</a></li>';
-    echo '<li><a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
-	echo '<li><a href="?page=fix-media&migration=true">Migrate From Blogs.Dir</a></li>';
-    echo '<ul>';
+	// Starting the HTML wrapper for the admin page
+	echo '<div class="wrap">';
+	echo '<h1>Fix Upload Path</h1><p>This tool is for fixing multiple issues path for this site</p>';
+	// Menus:
+	echo '<ul>';
+	echo '<li><a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
+	echo '<li><a href="?page=fix-media&delete_option=upload_url_path">Delete upload_url_path option</a></li>';
+	echo '<li><a href="?page=fix-media&delete_option=ms_files_rewriting">Delete ms_files_rewriting option</a></li>';
+	echo '<li><a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
+	echo '<ul>';
 
-    echo '<form method="get" action="">';
-    echo '<input type="hidden" name="page" value="fix-media">';
-    echo '<label for="search">Search:  </label>';
-	echo '<input type="text" id="search" name="search" value="'.$search.'" style="width: 80%;"><br>';
-	echo '<label for="replace">Replace: </label>';
-	echo '<input type="text" id="replace" name="replace" value="'.$replace.'" style="width: 80%;"><br>';
-	echo '<label for="delete_option">Delete Option: </label>';
-	echo '<input type="text" id="delete_option" name="delete_option" value="'.$delete_option.'" style="width: 80%;"><br>';
-    echo '<input type="checkbox" id="file_migration" name="file_migration" value="0"> Migrate File ';
-	echo '<input type="checkbox" id="dry_run" name="dry_run" value="0"> Apply Changes<br>';
-    echo '<input type="submit" value="Run">';
-    echo '</form>';
-
-    // Perform search and replace on multiple tables and columns
-    if (isset($search) && isset($replace)) {
-        $dry_run = !isset($_GET['dry_run']) || $_GET['dry_run'] != '0';
-
-        $output_posts = search_replace_all_columns($posts_table, $search, $replace, $dry_run);
-        $output_postmeta = search_replace_all_columns($postmeta_table, $search, $replace, $dry_run);
-        $output_options = search_replace_all_columns($option_table, $search, $replace, $dry_run);
-        $output_sitemeta = search_replace_all_columns($sitemeta_table, $search, $replace, $dry_run);
-
-        // Display the results
-        echo '<h2>Search and Replace Results</h2>';
-        echo '<pre>Posts: ' . print_r($output_posts, true) . '</pre>';
-        echo '<pre>Post Meta: ' . print_r($output_postmeta, true) . '</pre>';
-        echo '<pre>Options: ' . print_r($output_options, true) . '</pre>';
-        echo '<pre>Site Meta: ' . print_r($output_sitemeta, true) . '</pre>';
-    }
-
-    echo '</div>'; // Closing wrap div
+	echo '<form method="get" action="">';
+	echo '<input type="hidden" name="page" value="fix-media">';
+	echo '<label for="search">Search:</label>';
+	echo '<input type="text" id="search" name="search" value="blogs.dir">';
+	echo '<label for="replace">Replace:</label>';
+	echo '<input type="text" id="replace" name="replace" value="uploads/sites">';
+	echo '<input type="submit" value="Fix blogs.dir to uploads/sites">';
+	echo '</form>';
 
 	/*
 	 * Turn off ms-files.php
-	 * Source: https://anchor.host/removing-legacy-ms-files-php-from-multisite/
+	 *
 	 */
 	if (isset($_GET['msfiles'])){
 		// Check if the meta_key already exists
@@ -118,18 +79,25 @@ function utm_fixuploadpath(){
 	 * File Migration
 	 * Move files from blogs.dir to uploads/sites
 	 */
-	if (isset($_GET['file_migration']) && $_GET['file_migration'] == 1){
+	if (isset($_GET['migration'])){
+		// get blogs.dir path
+		$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/blogs.dir/". $site_id . "/files";
+
 		if ($site_id == 1){
 			echo "<br>This is the main site. Attempting to move files to correct location";
 			echo "<br>Blogs.dir path: " . $blogsdir_path;
+			$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/uploads";
 			echo "<br>Upload dir path: " . $uploaddir_path . "<br>";
 		}
+
 		if ($site_id != 1 && $site_id != 0 && $site_id != ""){
 			echo "<br>This is the subsite. Attempting to move files to correct location";
+			$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/uploads/sites/" . $site_id;
 		}
+
 		echo "<br>Blogs.dir path: " . $blogsdir_path;
 		echo "<br>Upload dir path: " . $uploaddir_path . "<br>";
-		merge_directories($blogsdir_path, $uploaddir_path, $_GET['dry_run']);
+		merge_directories($blogsdir_path, $uploaddir_path, false);
 		return;
 	}
 
@@ -137,7 +105,7 @@ function utm_fixuploadpath(){
 	 * Delete option from option table
 	 *
 	 */
-	if (isset($delete_option)){
+	if (isset($_GET['delete_option'])){
 		$wpdb->delete($option_table, array('option_name' => $_GET['delete_option']));
 		echo "Deleted option: " . $_GET['delete_option'];
 	}
@@ -401,7 +369,7 @@ function utm_fixuploadpath(){
 	echo '</div>';  // Closing wrap div
 }
 
-function merge_directories($source, $destination, $dry_run = false){
+function merge_directories($source, $destination, $safe_delete = false){
 	echo "Source: $source<br>";
 	echo "Destination: $destination<br>";
 	
@@ -441,18 +409,18 @@ function merge_directories($source, $destination, $dry_run = false){
         $destFile = $destination . '/' . $file;
 
         if (is_dir($srcFile)) {
-            merge_directories($srcFile, $destFile, $dry_run);
+            merge_directories($srcFile, $destFile, $safe_delete);
         } else {
             if (file_exists($destFile)) {
                 echo "Destination file exists: $destFile<br>";
-                if ($dry_run) {
+                if ($safe_delete) {
                     unlink($srcFile);
                     echo "Deleted source file: $srcFile<br>";
                 }
             } else {
                 if (copy($srcFile, $destFile)) {
                     echo "Copied file: $srcFile to $destFile<br>";
-                    if ($dry_run) {
+                    if ($safe_delete) {
                         unlink($srcFile);
                         echo "Deleted source file: $srcFile<br>";
                     }
@@ -465,7 +433,7 @@ function merge_directories($source, $destination, $dry_run = false){
 
 	closedir($dir);
 
-    if ($dry_run && is_dir_empty($source)) {
+    if ($safe_delete && is_dir_empty($source)) {
         rmdir($source);
         echo "Deleted empty source directory: $source<br>";
     }
@@ -486,7 +454,7 @@ function merge_directories($source, $destination, $dry_run = false){
                 if (!copy($source . '/' . $file, $destination . '/' . $file)) {
                     // If the copy operation fails, throw an exception
                     throw new Exception("Failed to copy $file from $source to $destination");
-					$dry_run = false;
+					$safe_delete = false;
                 }
             }
         }
@@ -496,7 +464,7 @@ function merge_directories($source, $destination, $dry_run = false){
 	closedir($dir);
 
 	// Remove the source directory
-	if ($dry_run !== false){
+	if ($safe_delete !== false){
 		// Check if the source directory exists before renaming
 		if (file_exists($source)) {
 			// Rename source directory, prepend .
@@ -568,58 +536,4 @@ function utm_recursive_str_replace($search, $replace, $subject, $depth = 0){
 	}
 
 	return $subject;
-}
-
-function universal_search_replace($table, $columns, $search, $replace, $dry_run = true) {
-    global $wpdb;
-    $output = array();
-
-    foreach ($columns as $column) {
-        $sql = $wpdb->prepare("SELECT * FROM $table WHERE $column LIKE %s", '%' . $wpdb->esc_like($search) . '%');
-        $results = $wpdb->get_results($sql, ARRAY_A);
-
-        if ($results) {
-            foreach ($results as $row) {
-                $original_value = $row[$column];
-                $updated_value = utm_recursive_str_replace($search, $replace, $original_value);
-				if($row['ID'] == false){
-					$row['ID'] = $row['option_id'];
-				}
-				if($row['name'] == false){
-					$row['name'] = $row['option_name'];
-				}
-                if ($dry_run) {
-					$status = "Dry Run";
-                } else {
-                    $update_status = $wpdb->update($table, array($column => $updated_value), array('ID' => $row['ID']));
-					if($update_status == false){
-						$update_status = $wpdb->update($table, array($column => $updated_value), array('option_id' => $row['ID']));
-					}
-                    if ($update_status !== false) {
-						$status = "Success";
-                    } else {
-						$keys = array_keys($row);
-						$status = $wpdb->last_error . " | " . var_dump($row);
-                    }
-                }
-				$output[] = array(
-					'table' => $table,
-					'column' => $column,
-					'ID' => $row['ID'],
-					'name' => $row['name'],
-					'original_value' => $original_value,
-					'updated_value' => $updated_value,
-					'update_status' => $status,
-				);
-            }
-        }
-    }
-
-    return $output;
-}
-
-function search_replace_all_columns($table, $search, $replace, $dry_run = false) {
-    global $wpdb;
-    $columns = $wpdb->get_col("DESC $table", 0);
-    return universal_search_replace($table, $columns, $search, $replace, $dry_run);
 }

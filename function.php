@@ -228,3 +228,15 @@ function run_sql_once(){
 }
 // run on init
 // add_action('init', 'run_sql_once');
+
+function stupid_ms_files_rewriting() {
+	// if main site, return
+	if (is_main_site()) {
+		return;
+	}
+	$url = '/wp-content/uploads/sites/' . get_current_blog_id();
+	if (!defined('BLOGUPLOADDIR')) {
+		define('BLOGUPLOADDIR', $url);
+	}
+}
+add_action('init','stupid_ms_files_rewriting');
