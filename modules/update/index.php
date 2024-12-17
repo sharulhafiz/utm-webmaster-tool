@@ -4,14 +4,10 @@ if (file_exists(dirname(__DIR__, 2) . '/update.lock')) {
     return;
 }
 require_once(dirname(__DIR__, 2) . '/lib/Composer/autoload.php');
+include(__DIR__ . '/version.php');
 
 use utmWebMaster\Koderkit as utmWebMasterKit;
 use utmWebMaster\KoderZi\PhpGitHubUpdater\Updater as utmWebMasterUpdate;
-
-if (!file_exists(__DIR__ . '/version.php')) {
-    @file_put_contents(__DIR__ . '/version.php', '<?php $wputmwebmasterVersion = "1.0.0";');
-}
-include(__DIR__ . '/version.php');
 
 utmWebMasterKit::init($wputmwebmasterVersion);
 
