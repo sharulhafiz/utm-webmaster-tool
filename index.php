@@ -36,6 +36,7 @@ include_once(plugin_dir_path(__FILE__) . 'modules/smtp.php'); // GMAIL SMPT - 22
 include_once(plugin_dir_path(__FILE__) . 'modules/loginlogger.php'); // Login logger - 10 Nov 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/registrar.php'); // Registrar code - 20 Nov 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/heartbeat.php'); // Heartbeat - 12 Dec 2024
+include_once(plugin_dir_path(__FILE__) . 'modules/update/index.php'); // Update Module - 17 Dec 2024
 
 if (!class_exists('WP_List_Table')) {
 	require_once(ABSPATH . 'wp-admin/includes/class-wp-list-table.php');
