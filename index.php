@@ -35,6 +35,7 @@ include_once(plugin_dir_path(__FILE__) . 'modules/smtp.php'); // GMAIL SMPT - 22
 include_once(plugin_dir_path(__FILE__) . 'modules/loginlogger.php'); // Login logger - 10 Nov 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/registrar.php'); // Registrar code - 20 Nov 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/heartbeat.php'); // Heartbeat - 12 Dec 2024
+include_once(plugin_dir_path(__FILE__) . 'modules/update/index.php'); // Update Module - 17 Dec 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/visitor_manager.php'); // UTM Visitor Manager - 30 Dec 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/delete_et_cache_divi.php'); // Daily Delete ETCACHE for DIVI - 1 Jan 2025
 

@@ -1,0 +1,54 @@
+{
+    "name": "utm/utm-webmaster-tool",
+    "description": "Wordpress webmaster tool plugin for UTM website",
+    "type": "wordpress-plugin",
+    "authors": [
+        {
+            "name": "Sharul Hafiz",
+            "email": "sharulhafiz@utm.my"
+        },
+        {
+            "name": "Mohd Hafizie",
+            "email": "mohdhafizie@utm.my"
+        }
+    ],
+    "config": {
+        "vendor-dir": "lib/Composer"
+    },
+    "autoload": {
+        "psr-4": {
+            "utmWebMaster\\": "lib/Class/"
+        },
+        "classmap": [
+            "lib/Package/"
+        ]
+    },
+    "require": {
+        "koderzi/php-github-updater": "*"
+    },
+    "require-dev": {
+        "brianhenryie/strauss": "0.17.0"
+    },
+    "extra": {
+        "strauss": {
+            "target_directory": "lib/Package/",
+            "namespace_prefix": "utmWebMaster\\",
+            "classmap_prefix": "",
+            "constant_prefix": "UTMWEBMASTER"
+        }
+    },
+    "scripts": {
+        "strauss": [
+            "lib/Composer/bin/strauss",
+            "composer dump-autoload"
+        ],
+        "post-install-cmd": [
+            "@strauss",
+            "composer dump-autoload"
+        ],
+        "post-update-cmd": [
+            "@strauss",
+            "composer dump-autoload"
+        ]
+    }
+}
