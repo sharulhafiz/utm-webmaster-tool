@@ -108,3 +108,26 @@ add_action('admin_head-edit-comments.php', 'scan_comments_for_spam');
 add_filter('wp_new_comment_notify_postauthor', '__return_false');
 add_filter('wp_new_comment_notify_moderator', '__return_false');
 
+// Disable comments for current site
+add_filter('comments_open', '__return_false');
+add_filter('pings_open', '__return_false');
+add_filter('comment_form_defaults', 'remove_comment_form');
+function remove_comment_form($defaults) {
+    $defaults['comment_notes_before'] = '';
+    $defaults['comment_notes_after'] = '';
+    return $defaults;
+}
+
+// Disable comments for all posts
+add_action('init', 'disable_comments_post_types_support');
+function disable_comments_post_types_support() {
+    $post_types = get_post_types();
+    foreach ($post_types as $post_type) {
+        if (post_type_supports($post_type, 'comments')) {
+            remove_post_type_support($post_type, 'comments');
+            remove_post_type_support($post_type, 'trackbacks');
+        }
+    }
+}
+
+

@@ -48,8 +48,8 @@ function check_login() {
 
     // Legit login
     if (isset($_COOKIE['utmwp'])) {
-        $message = "Notice: A login was made with the 'utmwp' cookie.";
-        send_alert($message, 'utmwp');
+        // $message = "Notice: A login was made with the 'utmwp' cookie.";
+        // send_alert($message, 'utmwp');
         return;
     }
 

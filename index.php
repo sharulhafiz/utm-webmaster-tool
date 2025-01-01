@@ -5,10 +5,10 @@ Plugin URI: http://osca.utm.my/webteam
 Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
-Version: 5.24
+Version: 5.26
 Author URI: http://people.utm.my/sharulhafiz
 */
-define('utm_plugin_version', '5.25');
+define('utm_plugin_version', '5.26');
 define('utm_network_site_url', get_site_url());
 
 require_once ABSPATH . 'wp-admin/includes/ms.php';
@@ -22,7 +22,7 @@ include(plugin_dir_path(__FILE__) . 'modules/migrate-upload.php');
 include(plugin_dir_path(__FILE__) . 'modules/fixuploadpath.php');
 include(plugin_dir_path(__FILE__) . 'modules/fixuserrole.php');
 include(plugin_dir_path(__FILE__) . 'function.php');
-// include(plugin_dir_path(__FILE__) . 'modules/comment_anti_spam/comment_anti_spam.php');
+include(plugin_dir_path(__FILE__) . 'modules/comment_anti_spam/comment_anti_spam.php');
 include(plugin_dir_path(__FILE__) . 'modules/people/redirect_to_site.php');
 include(plugin_dir_path(__FILE__) . 'modules/disableplugin.php');
 include(plugin_dir_path(__FILE__) . 'modules/staffapi.php'); // only load on registrar.utm.my domain
@@ -31,11 +31,12 @@ include_once(plugin_dir_path(__FILE__) . 'modules/postExport.php'); // Export po
 include_once(plugin_dir_path(__FILE__) . 'modules/nlp-to-ics.php'); // Convert natural text into .ics file
 include_once(plugin_dir_path(__FILE__) . 'modules/content-visibility-shortcodes.php'); // show content based on user - 12/8/2024
 // include_once(plugin_dir_path(__FILE__) . 'modules/popup-ads.php'); // Popup ads - 13 May 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/api_tester.php'); // Check plugin version - 3 Oct 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/smtp.php'); // GMAIL SMPT - 22 Oct 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/loginlogger.php'); // Login logger - 10 Nov 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/registrar.php'); // Registrar code - 20 Nov 2024
 include_once(plugin_dir_path(__FILE__) . 'modules/heartbeat.php'); // Heartbeat - 12 Dec 2024
+include_once(plugin_dir_path(__FILE__) . 'modules/visitor_manager.php'); // UTM Visitor Manager - 30 Dec 2024
+include_once(plugin_dir_path(__FILE__) . 'modules/delete_et_cache_divi.php'); // Daily Delete ETCACHE for DIVI - 1 Jan 2025
 
 if (!class_exists('WP_List_Table')) {
 	require_once(ABSPATH . 'wp-admin/includes/class-wp-list-table.php');
