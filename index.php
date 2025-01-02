@@ -5,7 +5,6 @@ Plugin URI: http://osca.utm.my/webteam
 Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
-Version: 5.26
 Author URI: http://people.utm.my/sharulhafiz
 */
 define('utm_plugin_version', '5.26');
