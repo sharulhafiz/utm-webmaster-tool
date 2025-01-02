@@ -25,7 +25,7 @@ function webmasterUpdate()
     }
 }
 
-add_action('shutdown', webmasterUpdate());
+add_action('shutdown', 'webmasterUpdate');
 
 function webmaster_update_run()
 {
