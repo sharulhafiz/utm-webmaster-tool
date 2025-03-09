@@ -1,9 +1,7 @@
 <?php
 /*
-Plugin Name: UTM Webmaster Tool - Broken Link Monitor
-Description: Monitors and logs 404 errors.
-Version: 1.0
-Author: Sharul Hafiz
+UTM Webmaster Tool - Broken Link Monitor
+Monitor 404 errors and display a summary in the admin area.
 */
 
 // Hook into 404 template
