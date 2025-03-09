@@ -1,4 +1,6 @@
 <?php
+return;
+
 function send_alert($message, $type, $user = null) {
     // Append the user's IP address to the message
     $message .= "\n\nIP Address: " . $_SERVER['REMOTE_ADDR'];

@@ -1,0 +1,36 @@
+mysqldump -u space -p'mkr2*59O2' -h 161.139.22.49 --default-character-set=utf8 --add-drop-database --add-drop-table --skip-comments space | gzip > space_backup.sql.gz
+
+[wp-search-exploit]
+enabled = true
+filter = wp-search-exploit
+action = iptables-allports[chain="INPUT", name="wp-search-exploit", port="ssh", protocol="tcp", returntype="RETURN", lockingopt="-w"]
+logpath = /var/www/vhosts/*/logs/access_ssl_log
+/var/www/vhosts/*/*/logs/access_ssl_log
+maxretry = 3
+
+[wordpress-comments]
+enabled = true
+filter = wordpress-comments
+logpath = /var/log/apache2/access.log  # Adjust this path based on your web server logs
+maxretry = 1
+bantime = 86400  # Ban time in seconds (24 hours)
+action = iptables[name=WordPressComments, port=http, protocol=tcp]
+
+action = iptables-multiport[name="plesk-wordpress", port="http,https,7080,7081"]
+action = iptables-allports[chain="INPUT", name="wp-search-exploit", port="ssh", protocol="tcp", returntype="RETURN", lockingopt="-w"]
+action = iptables[name=WordPressComments, port=http, protocol=tcp]
+
+[Definition]
+failregex = ^<HOST> .* "POST /wp-login.php HTTP.*" 401
+ignoreregex =
+
+[wordpress-login]
+enabled = true
+filter = wp-login
+logpath = /var/log/apache2/access.log  # Adjust this path based on your web server logs
+maxretry = 2
+findtime = 60  # Time frame in seconds to count failed attempts
+bantime = 3600  # Ban time in seconds (1 hour)
+action = iptables[name=WordPressLogin, port=http, protocol=tcp]
+
+tail -f /var/www/vhosts/*/logs/access_ssl_log /var/www/vhosts/*/*/logs/access_ssl_log | grep "\.php" | grep -vE "\.(pdf|js|jpg|jpeg|png|gif|ico|svg|wp-cron\.php(\?.*)?|admin-ajax\.php(\?.*)?)"

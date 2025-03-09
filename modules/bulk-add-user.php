@@ -16,6 +16,7 @@ function utm_newshub_bulk_add_user_page() {
     echo '<div class="wrap">';
 
     echo '<h1>Bulk Add User</h1>';
+    echo '<p>Enter a list of user emails to create new users, new line for each user</p>';
 
     $bulk_user = isset($_POST['bulk_user']) ? $_POST['bulk_user'] : '';
 
@@ -31,7 +32,7 @@ function utm_newshub_bulk_add_user_page() {
         // return;
         foreach ($emails as $email) {
             $email = trim($email); // Remove any extra whitespace
-            $username = substr($email, 0, strpos($email, '@')); // Get the part of the email before the @
+            $username = $email; // Use email as username
             $password = wp_generate_password(); // Generate a random password
             $user_id = wp_create_user($username, $password, $email);
             if (!is_wp_error($user_id)) {

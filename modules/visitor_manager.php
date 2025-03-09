@@ -3,12 +3,13 @@
 // Bot Access Manager
 // =================================================================================================
 function is_allowed_bot() {
-    if (!isset($_SERVER['HTTP_USER_AGENT'])) {
-        return false; // No User-Agent header present
+    if (isset($_SERVER['HTTP_USER_AGENT'])) {
+        $user_agent = $_SERVER['HTTP_USER_AGENT'];
+    } else {
+        return;
     }
 
-    $user_agent = $_SERVER['HTTP_USER_AGENT'];
-    $allowed_bots = ['Googlebot', 'bingbot', 'UptimeRobot', 'ChatGPT-User', 'monitoring360bot', 'ahrefsbot'];
+    $allowed_bots = ['Googlebot', 'bingbot', 'UptimeRobot', 'ChatGPT-User', 'monitoring360bot', 'ahrefsbot', 'Plesk screenshot bot'];
 
     foreach ($allowed_bots as $bot) {
         if (stripos($user_agent, $bot) !== false) {
@@ -19,34 +20,35 @@ function is_allowed_bot() {
 }
 
 function manage_bot_access() {
+    // if no ip, return
+    if (!isset($_SERVER['REMOTE_ADDR'])) {
+        return;
+        // exit("Access denied: No IP address present.");
+    }
     if (!isset($_SERVER['HTTP_USER_AGENT'])) {
         error_log('Blocked access: No User-Agent header present.');
         header("HTTP/1.1 403 Forbidden");
         exit("Access denied: No User-Agent header present.");
     }
 
-    if (is_allowed_bot()) {
-        error_log('Allowed bot: ' . $_SERVER['HTTP_USER_AGENT']);
-        return; // Allow access for allowed bots
-    }
-    
+    if (is_allowed_bot()) return; // Allow access for allowed bots
+
     if (preg_match('/bot|crawl|slurp|spider/i', $_SERVER['HTTP_USER_AGENT'])) {
         error_log('Blocked bot: ' . $_SERVER['HTTP_USER_AGENT']);
         header("HTTP/1.1 403 Forbidden");
         exit("Access denied for unauthorized bots.");
     }
 }
-add_action('init', 'manage_bot_access');
+// add_action('init', 'manage_bot_access');
 
 // =================================================================================================
 // Limit Concurrent Users
 // =================================================================================================
 function limit_concurrent_users() {
     if (is_allowed_bot()) return; // Don't limit allowed bots
-    if (isset($_COOKIE['utmwp'])) {
-        error_log('User has utmwp cookie, not limiting.');
-        return; // Exclude users with 'utmwp' cookies
-    }
+    if (isset($_COOKIE['utmwp'])) return; // Exclude users with 'utmwp' cookies
+    if (!isset($_SERVER['HTTP_HOST'])) return; // if no domain, return
+
     // if ip start wit 10, return
     if (strpos($_SERVER['REMOTE_ADDR'], '10.') === 0) {
         error_log('Allowed IP: ' . $_SERVER['REMOTE_ADDR']);
@@ -58,13 +60,12 @@ function limit_concurrent_users() {
     foreach ($allowed_domain as $domain) {
         if (stripos($_SERVER['HTTP_HOST'], $domain) !== false) {
             error_log('Allowed Domain: ' . $_SERVER['HTTP_HOST']);
-        return;
+            return;
         }
     }
 
     // if server load average is less than 25, return
     if (function_exists('sys_getloadavg') && sys_getloadavg()[0] < 25) {
-        error_log('Server Load Average: ' . sys_getloadavg()[0]);
         return;
     }
 
@@ -102,6 +103,11 @@ function limit_concurrent_users() {
 
 function limit_page_views_per_session() {
     if (is_allowed_bot()) return; // Don't limit allowed bots
+    if (isset($_COOKIE['utmwp'])) return; // Exclude users with 'utmwp' cookies
+    // if server load average is less than 25, return
+    if (function_exists('sys_getloadavg') && sys_getloadavg()[0] < 25) {
+        return;
+    }
 
     $max_pages = 10;
     $views = isset($_COOKIE['page_views']) ? intval($_COOKIE['page_views']) : 0;
@@ -116,8 +122,8 @@ function limit_page_views_per_session() {
     setcookie('page_views', $views + 1, time() + (600), '/');
 }
 
-add_action('template_redirect', 'limit_concurrent_users', 10);
-add_action('template_redirect', 'limit_page_views_per_session', 10);
+// add_action('template_redirect', 'limit_concurrent_users', 10);
+// add_action('template_redirect', 'limit_page_views_per_session', 10);
 
 // =================================================================================================
 // Limit Bot Access
