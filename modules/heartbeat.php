@@ -1,18 +1,19 @@
 <?php
+// Early return if not on main site
+if (!is_main_site()) {
+    return;
+}
+
 // Schedule the event on plugin activation
 register_activation_hook(__FILE__, 'utm_heartbeat_schedule_event');
 function utm_heartbeat_schedule_event() {
-    if (is_main_site() && !wp_next_scheduled('utm_heartbeat_daily_event')) {
-        wp_schedule_event(time(), 'daily', 'utm_heartbeat_daily_event');
-    }
+    wp_schedule_event(time(), 'daily', 'utm_heartbeat_daily_event');
 }
 
 // Clear the scheduled event on plugin deactivation
 register_deactivation_hook(__FILE__, 'utm_heartbeat_clear_scheduled_event');
 function utm_heartbeat_clear_scheduled_event() {
-    if (is_main_site()) {
-        wp_clear_scheduled_hook('utm_heartbeat_daily_event');
-    }
+    wp_clear_scheduled_hook('utm_heartbeat_daily_event');
 }
 
 // Ensure the event is scheduled even after plugin updates
@@ -35,14 +36,3 @@ function utm_send_heartbeat() {
         error_log('UTM Heartbeat Error: ' . $response->get_error_message());
     }
 }
-
-// Debugging function to manually trigger the heartbeat
-function utm_manual_heartbeat() {
-    utm_send_heartbeat();
-    echo '<script>console.log("UTM Heartbeat Sent");</script>';
-}
-
-// // if user is webmaster, run on init
-// if (is_main_site()) {
-//     add_action('init', 'utm_manual_heartbeat');
-// }

@@ -6,9 +6,9 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: http://people.utm.my/sharulhafiz
-Version: 5.26
+Version: 5.27
 */
-define('utm_plugin_version', '5.26');
+define('utm_plugin_version', '5.27');
 define('utm_network_site_url', get_site_url());
 
 require_once ABSPATH . 'wp-admin/includes/ms.php';

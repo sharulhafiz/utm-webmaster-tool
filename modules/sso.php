@@ -13,7 +13,7 @@ if ( ! isset( $_COOKIE['debug'] ) ) {
     return;
 }
 
-if ( ! defined( 'ABSPATH' ) ) {
+if ( ! function_exists('defined') || ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
