@@ -148,7 +148,7 @@ class UTMLoginLogger {
         }
     }
 
-    private function utm_prepend_htaccess_block_wp_login_post() {
+    public function utm_prepend_htaccess_block_wp_login_post() {
         // Login logger version 1.0
         $loginlogger_version = '1.0';
 
