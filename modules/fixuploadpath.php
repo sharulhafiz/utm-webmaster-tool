@@ -18,20 +18,85 @@ function utm_fixuploadpath(){
     $site_id = $current_blog_id;
     $meta_key = 'ms_files_rewriting';
     $meta_value = '0';
+
+	// Page title
+	echo '<h1>Fix Upload Path</h1>';
+
+	// Fixing AI1WM Options
+	// Find in option table where option name contain ai1wm
+	$ai1wm_options = $wpdb->get_results("SELECT * FROM $option_table WHERE option_name LIKE '%ai1wm%'");
+	if (!empty($ai1wm_options)) {
+		echo '<h2>AI1WM Options</h2><ul>';
+		foreach ($ai1wm_options as $option) {
+			$option_name = htmlspecialchars($option->option_name);
+			$option_value = htmlspecialchars($option->option_value);
+	
+			// Check if the option is ai1wm_backups_path and fix the path if needed
+			if ($option->option_name === 'ai1wm_backups_path') {
+				$current_path = $option->option_value;
+				$correct_path = WP_CONTENT_DIR . '/ai1wm-backups'; // Rebuild the correct path dynamically
+	
+				// If the current path is incorrect, update it
+				if ($current_path !== $correct_path) {
+					$wpdb->update(
+						$option_table,
+						array('option_value' => $correct_path),
+						array('option_name' => 'ai1wm_backups_path')
+					);
+					echo '<li>' . $option_name . ': <strong>Path corrected to:</strong> ' . htmlspecialchars($correct_path) . '</li>';
+				} else {
+					echo '<li>' . $option_name . ': ' . $option_value . '</li>';
+				}
+			} else {
+				echo '<li>' . $option_name . ': ' . $option_value . '</li>';
+			}
+		}
+		echo '</ul>';
+	} else {
+		echo '<p>No options found containing "ai1wm".</p>';
+	}
+
+	// Check folder permission of /wp-content/
+	$wpcontent_path = $_SERVER['DOCUMENT_ROOT'] . '/wp-content/';
+	echo "wp-content path: " . $wpcontent_path . "<br><br>";
+	if (!is_writable($wpcontent_path)) {
+		echo '<div class="error"><p>Permission denied: /wp-content/ is not writable.</p></div>';
+		return;
+	} else {
+		// List all files and folders in the directory and permission in table format
+		$files = scandir($wpcontent_path);
+		echo '<table>';
+		echo '<tr><th>File/Folder</th><th>Writable</th></tr>';
+		foreach ($files as $file) {
+			// if file start with temp-write-test, delete it
+			if (strpos($file, 'temp-write-test') === 0) {
+				unlink($wpcontent_path . $file);
+			}
+			if ($file != '.' && $file != '..') {
+				$is_writable = is_writable($wpcontent_path . $file) ? 'Yes' : 'No';
+				echo '<tr><td>' . htmlspecialchars($file) . '</td><td>' . $is_writable . '</td></tr>';
+			}
+		}
+		echo '</table>'; // Changed from </ul> to </table>
+	}
+
 	// blogsdir migration
-	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/blogs.dir/". $site_id . "/files";
+	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "/wp-content/blogs.dir/". $site_id . "/files";
 	$search = $blogsdir_path;
 	if ($site_id == 1){
-		$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/uploads";
+		$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "/wp-content/uploads";
 	}
 	if ($site_id != 1 && $site_id != 0 && $site_id != ""){
 		$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/uploads/sites/" . $site_id;
 	}
 	$replace = $uploaddir_path;
-    if (isset($_GET['search'])) $search = $_GET['search'];
-    if (isset($_GET['replace'])) $replace = $_GET['replace'];
-    if (isset($_GET['delete_option'])) $delete_option = $_GET['delete_option'];
-    $upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
+
+	// Sanitize user input
+	$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
+	$replace = isset($_GET['replace']) ? sanitize_text_field($_GET['replace']) : '';
+	$delete_option = isset($_GET['delete_option']) ? sanitize_text_field($_GET['delete_option']) : '';
+
+	$upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
 	if ($upload_path != ''){
 		// set upload path to default
 		$wpdb->insert($option_table, array('option_name' => 'upload_path', 'option_value' => ''));
@@ -43,13 +108,16 @@ function utm_fixuploadpath(){
     echo '<h1>Fix Upload Path</h1><p>This tool is for fixing multiple issues path for this site</p>';
     // Menus:
     echo '<ul>';
-    echo '<li><a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
-    echo '<li><a href="?page=fix-media&delete_option=upload_url_path">Delete upload_url_path option</a></li>';
+	$upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
+    echo '<li>Upload path: ' . htmlspecialchars($upload_path) . ' - <a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
+    $upload_url_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_url_path'");
+    echo '<li>Upload URL path: ' . htmlspecialchars($upload_url_path) . ' - <a href="?page=fix-media&delete_option=upload_url_path">Delete upload_url_path option</a></li>';
     echo '<li><a href="?page=fix-media&msfiles=true">Set ms-files to 0</a></li>';
-    echo '<li><a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
 	echo '<li><a href="?page=fix-media&migration=true">Migrate From Blogs.Dir</a></li>';
-    echo '<ul>';
+    echo '</ul>'; // Close the first <ul> tag
 
+	echo '<h2>Search and Replace</h2>';
+	// Forms:
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="fix-media">';
     echo '<label for="search">Search:  </label>';
@@ -61,7 +129,13 @@ function utm_fixuploadpath(){
     echo '<input type="checkbox" id="file_migration" name="file_migration" value="0"> Migrate File ';
 	echo '<input type="checkbox" id="dry_run" name="dry_run" value="0"> Apply Changes<br>';
     echo '<input type="submit" value="Run">';
+	echo '<input type="hidden" name="utm_nonce" value="' . wp_create_nonce('utm_fixuploadpath') . '">';
     echo '</form>';
+
+	// Verify nonce before processing
+	if (!isset($_GET['utm_nonce']) || !wp_verify_nonce($_GET['utm_nonce'], 'utm_fixuploadpath')) {
+		wp_die('Unauthorized request');
+	}
 
     // Perform search and replace on multiple tables and columns
     if (isset($search) && isset($replace)) {

@@ -128,7 +128,7 @@ function trash_spam_posts_on_load() {
     }
 
     // if page is not published, return
-    if ($post->post_status !== 'publish') {
+    if (!$post || $post->post_status !== 'publish') {
         return;
     }
 
