@@ -14,7 +14,7 @@ define('utm_network_site_url', get_site_url());
 require_once ABSPATH . 'wp-admin/includes/ms.php';
 
 $modules_dir = plugin_dir_path(__FILE__) . 'modules/';
-$files_to_remove = ['smtp.php','fixuploadpath-copy.php','generate_ics.php','visitor_manager.php','notes.txt','deletecomments.php','allinonemigration.php'];
+$files_to_remove = ['smtp.php','fixuploadpath-copy.php','generate_ics.php','visitor_manager.php','notes.txt','deletecomments.php','allinonemigration.php','update.php','nlp-to-ics.php'];
 $folders_to_remove = ['comment_anti_spam'];
 
 // remove folder in $folders_to_remove

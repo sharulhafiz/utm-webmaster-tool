@@ -1,39 +1,66 @@
 <?php
 function enqueue_popup_script() {
-    // If current page is not people.utm.my, skip
-    if (!preg_match('/people.utm.my/', $_SERVER['HTTP_HOST'])) {
-        ?>
-        <script>
-        console.log('Popup ads not loaded');
-        </script>
-        <?php
-        return;
-    } else {
-        // If current page is people.utm.my, show popup ads
-    ?>
-    <script>
-        console.log('Popup ads loaded');
-        jQuery(document).ready(function($) {
-            // Load popup ads
-            var popup_ads = '<div id="popup-ads" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 9999;">' +
-                '<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px;">' +
-                '<h2>Get 50% discount on all products!</h2>' +
-                '<p>Use code: <strong>DISCOUNT50</strong></p>' +
-                '<button id="close-popup-ads" style="padding: 10px 20px; background-color: #0073aa; color: white; border: none; cursor: pointer;">Close</button>' +
-                '</div>' +
-                '</div>';
-            $('body').append(popup_ads);
+    // Get the user's IP address
+    $user_ip = '';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $user_ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]); // Get the first IP in the list
+    } elseif (!empty($_SERVER['REMOTE_ADDR'])) {
+        $user_ip = $_SERVER['REMOTE_ADDR'];
+    }
 
-            // Show popup ads
-            $('#popup-ads').fadeIn();
+    // Define UTM network IP ranges (CIDR format)
+    $utm_ip_ranges = [
+        '10.0.0.0/8', // Private IP range
+        '161.139.0.0/16', // Server IP range
+    ];
 
-            // Close popup ads
-            $('#close-popup-ads').click(function() {
-                $('#popup-ads').fadeOut();
+    // Check if the user's IP belongs to the UTM network
+    if (is_ip_in_ranges($user_ip, $utm_ip_ranges)) {
+        return; // User is on the UTM network, do not show popup
+    }
+
+    // Open this link in a new tab, once per day
+    $popup_cookie_name = 'utm_popup';
+    $popup_url = 'https://s.shopee.com.my/5pug3IftXz'; // Replace with your URL
+    if (!isset($_COOKIE[$popup_cookie_name])) {
+        echo '<script type="text/javascript">window.open("' . $popup_url . '", "_blank");</script>';
+        setcookie($popup_cookie_name, '1', time() + 86400, "/");
+        // register event in Google Analytics
+        echo '<script type="text/javascript">
+            window.dataLayer = window.dataLayer || [];
+            window.dataLayer.push({
+                "event": "popup_opened",
+                "popup_url": "' . $popup_url . '"
             });
-        });
-    </script>
-    <?php
+        </script>';
     }
 }
-add_action('wp_enqueue_scripts', 'enqueue_popup_script');
+add_action('wp_footer', 'enqueue_popup_script');
+
+/**
+ * Check if an IP address is in a list of CIDR ranges.
+ *
+ * @param string $ip The IP address to check.
+ * @param array $ranges An array of CIDR ranges.
+ * @return bool True if the IP is in any of the ranges, false otherwise.
+ */
+function is_ip_in_ranges($ip, $ranges) {
+    foreach ($ranges as $range) {
+        if (ip_in_range($ip, $range)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Check if an IP address is in a CIDR range.
+ *
+ * @param string $ip The IP address to check.
+ * @param string $cidr The CIDR range (e.g., '192.168.0.0/24').
+ * @return bool True if the IP is in the range, false otherwise.
+ */
+function ip_in_range($ip, $cidr) {
+    list($subnet, $mask) = explode('/', $cidr);
+    return (ip2long($ip) & ~((1 << (32 - $mask)) - 1)) === ip2long($subnet);
+}
