@@ -7,6 +7,12 @@ if (!is_main_site()) {
 // Schedule the event on plugin activation
 register_activation_hook(__FILE__, 'utm_heartbeat_schedule_event');
 function utm_heartbeat_schedule_event() {
+    // Clear any existing scheduled events for this hook
+    if (wp_next_scheduled('utm_heartbeat_daily_event')) {
+        wp_clear_scheduled_hook('utm_heartbeat_daily_event');
+    }
+
+    // Schedule the event
     wp_schedule_event(time(), 'daily', 'utm_heartbeat_daily_event');
 }
 
