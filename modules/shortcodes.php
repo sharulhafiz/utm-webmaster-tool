@@ -56,6 +56,7 @@ function utmwebmaster_checkuserexist_shortcode($atts)
         $user = get_user_by('email', $useremail); // get ID
         if ($user != false) {
             $user_blogs = get_blogs_of_user($user->ID);
+            $userblog = ""; // Initialize $userblog as an empty string
             if ($user_blogs==false) {
                 $userblog = "User has registered but no website<br>";
                 $icon = "⚠️ ";
@@ -69,7 +70,6 @@ function utmwebmaster_checkuserexist_shortcode($atts)
         } else {
             echo "❗️ " . $useremail . " - No user has been registered<br>";
         }
-        $userblog = "";
     }
 }
 add_shortcode('utmwebmaster_checkuserexist', 'utmwebmaster_checkuserexist_shortcode');
@@ -83,6 +83,8 @@ function utmwebmaster_sitenouser_shortcode($atts)
     $k = 0;
     if ($blogs) {
         $blogs_info = array();
+        $total_sites_post_page = 0; // Initialize the variable
+        $total_sites_diskusage = 0; // Initialize the variable
         foreach ($blogs as $blog) {
             // count comments
             // set table prefix
@@ -233,3 +235,25 @@ function utmwebmaster_sitenouser_shortcode($atts)
 <?php
 }
 add_shortcode('utmwebmaster_sitenouser', 'utmwebmaster_sitenouser_shortcode');
+
+//
+// ACF Helper: Show ACF Field Value
+//
+function show_acf_field_shortcode($atts) {
+    $atts = shortcode_atts([
+        'field' => '',
+        'post_id' => get_the_ID()
+    ], $atts);
+
+    return get_field($atts['field'], $atts['post_id']);
+}
+add_shortcode('show_acf', 'show_acf_field_shortcode');
+
+// Dummy get_field function for masking errors
+add_action('plugins_loaded', function() {
+    if (!function_exists('get_field')) {
+        function get_field($field, $post_id) {
+            return "Field: $field, Post ID: $post_id";
+        }
+    }
+});

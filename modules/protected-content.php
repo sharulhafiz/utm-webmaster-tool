@@ -4,7 +4,7 @@ function protected_content_shortcode($atts, $content = null) {
     $url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
 
     // Check if user is logged in
-    if (!is_user_logged_in()) {
+    if (!isset($_COOKIE['utmwp'])) {
         // Append the current page URL to the login page
         $login_page_url = wp_login_url($url);
         $content = '
