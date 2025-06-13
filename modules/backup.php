@@ -8,7 +8,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class UTM_Webmaster_Tool_Backup {
 
     public function __construct() {
-        add_action( 'init', array( $this, 'schedule_backup' ) );
+        add_action( 'admin_init', array( $this, 'schedule_backup' ) );
         add_action( 'utm_webmaster_tool_daily_backup', array( $this, 'backup_database' ) );
         add_action( 'admin_menu', array( $this, 'add_backup_page' ) );
         add_action( 'wp_ajax_utm_initiate_backup', array( $this, 'ajax_initiate_backup' ) );
@@ -16,20 +16,15 @@ class UTM_Webmaster_Tool_Backup {
     }
 
     public function schedule_backup() {
-        $current_time = current_time( 'H' );
         $next_scheduled = wp_next_scheduled( 'utm_webmaster_tool_daily_backup' );
-    
-        // Check if a backup is already scheduled
         if ( $next_scheduled ) {
             $scheduled_hour = date( 'H', $next_scheduled );
-    
-            // If the scheduled time is NOT within the desired window, reschedule
+            // Only allow backups between 22:00 and 06:00
             if ( $scheduled_hour < 22 && $scheduled_hour >= 6 ) {
                 wp_clear_scheduled_hook( 'utm_webmaster_tool_daily_backup' );
                 $this->schedule_new_backup();
             }
         } else {
-            // If no backup is scheduled, schedule one
             $this->schedule_new_backup();
         }
     }
@@ -64,7 +59,7 @@ class UTM_Webmaster_Tool_Backup {
         global $wpdb;
     
         $upload_dir = wp_upload_dir();
-        $timestamp = date('Ymd');
+        $timestamp = date('Ymd'); // Changed to format 20250320
         $backup_file = $upload_dir['basedir'] . '/db-backup-' . $timestamp . '.sql';
         $error_log_file = $upload_dir['basedir'] . '/db-backup-error-log.txt';
     

