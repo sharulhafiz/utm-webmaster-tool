@@ -6,12 +6,11 @@ function register_fixUserRole_admin_menu(){
 }
 add_action('admin_menu', 'register_fixUserRole_admin_menu');
 
-function restore_default_user_roles()
-{
+function restore_default_user_roles(){
 	global $wpdb;
 	$site_id = null;
 
-	echo "<h1>Fix User Role</h1>";
+	echo "<h1>Fix User Role v25.5.16</h1>";
 
 	// Get current page url without query parameters
 	$url = strtok($_SERVER['REQUEST_URI'], '?');
@@ -27,9 +26,13 @@ function restore_default_user_roles()
 	// Make the input field readonly if site ID is not main site
 	$readonly = $site_id != 1 ? "readonly" : "";
 
+	// Add nonce for security
+	$nonce = wp_create_nonce('fix_user_role_nonce');
+
 	// Create input form
 	echo "<form action='". $url . "' method='get'>";
 	echo "<input type='hidden' name='page' value='restore_default_user_roles' />";
+	echo "<input type='hidden' name='fix_user_role_nonce' value='$nonce' />";
 	echo "<label for='site_id'>Site ID: </label>";
 	echo "<input type='text' name='site_id' value='$site_id' $readonly/>";
 	echo "<input type='submit' value='Fix user role this site' />";
@@ -89,55 +92,37 @@ function restore_default_user_roles()
 
 	echo "Roles option name: $roles_option_name<br>";
 
-	// load default roles
-	$serialized_default_roles = serialize(wp_default_cap());
-
-	// Debugging: Print the serialized default roles
-    echo "<pre>Serialized Default Roles:\n";
-    echo $serialized_default_roles;
-    echo "</pre>";
-
-    // Debugging: Print the default roles before updating
-    echo "<pre>Unserialized Default Roles:\n";
-    print_r(unserialize($serialized_default_roles));
-    echo "</pre>";
-
-	foreach ($user_roles as $user_role) {
-		if ($user_role->option_name == $roles_option_name) {
-			echo "Option $roles_option_name exists<br>";
-
-			// update option
-			if($wpdb->update($wpdb->options, array('option_value' => $serialized_default_roles), array('option_name' => $roles_option_name))) {
-				echo "Option $roles_option_name updated with default roles<br>";
-			}
-		} else {
-			echo "Option $roles_option_name does not exist, creating new option with default value<br>";
-
-			// Add option
-			if($wpdb->insert($wpdb->options, array('option_name' => $roles_option_name, 'option_value' => $serialized_default_roles))) {
-				echo "Added option $roles_option_name<br>";
-			}
-		}
-	}
+	// Use WordPress API to reset roles to official defaults
+	if ( ! function_exists( 'populate_roles' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/schema.php';
+    }
+    if ( function_exists( 'populate_roles' ) ) {
+        populate_roles();
+        echo "WordPress default roles have been restored using populate_roles().<br>";
+    } else {
+        echo "populate_roles() function not found. Unable to reset to official defaults.<br>";
+    }
 
 	// Ensure level_10 capability is added to administrator role
     $role = get_role('administrator');
     if ($role) {
         $role->add_cap('level_10');
     }
-	
+
 	// view values
-	$user_roles_value = get_option($roles_option_name);
+	global $wp_roles;
+	if ( ! isset( $wp_roles ) ) {
+		$wp_roles = new WP_Roles();
+	}
 	echo "<pre>";
-	print_r($user_roles_value);
+	print_r($wp_roles->roles);
 	echo "</pre>";
 
 	// Return to current blog
-	restore_current_blog();	
+	restore_current_blog();
 }
 
-function delete_role($role = 'subscriber')
-{
+function delete_role($role = 'subscriber'){
 	echo "<h1>Delete All {$role}</h1>";
 	echo "<pre>";
 	$blogusers = get_users('role=' . $role . '&orderby=nicename&order=ASC');

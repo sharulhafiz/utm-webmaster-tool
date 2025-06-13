@@ -16,72 +16,18 @@ function utm_fixuploadpath(){
     $slug = get_blog_details($current_blog_id)->path;
     $sitemeta_table = $wpdb->prefix . 'sitemeta';
     $site_id = $current_blog_id;
-    $meta_key = 'ms_files_rewriting';
-    $meta_value = '0';
 
 	// Page title
-	echo '<h1>Fix Upload Path</h1>';
+	echo '<h1>Fix Upload Path - v2025.05.14</h1>';
 
-	// Fixing AI1WM Options
-	// Find in option table where option name contain ai1wm
-	$ai1wm_options = $wpdb->get_results("SELECT * FROM $option_table WHERE option_name LIKE '%ai1wm%'");
-	if (!empty($ai1wm_options)) {
-		echo '<h2>AI1WM Options</h2><ul>';
-		foreach ($ai1wm_options as $option) {
-			$option_name = htmlspecialchars($option->option_name);
-			$option_value = htmlspecialchars($option->option_value);
-	
-			// Check if the option is ai1wm_backups_path and fix the path if needed
-			if ($option->option_name === 'ai1wm_backups_path') {
-				$current_path = $option->option_value;
-				$correct_path = WP_CONTENT_DIR . '/ai1wm-backups'; // Rebuild the correct path dynamically
-	
-				// If the current path is incorrect, update it
-				if ($current_path !== $correct_path) {
-					$wpdb->update(
-						$option_table,
-						array('option_value' => $correct_path),
-						array('option_name' => 'ai1wm_backups_path')
-					);
-					echo '<li>' . $option_name . ': <strong>Path corrected to:</strong> ' . htmlspecialchars($correct_path) . '</li>';
-				} else {
-					echo '<li>' . $option_name . ': ' . $option_value . '</li>';
-				}
-			} else {
-				echo '<li>' . $option_name . ': ' . $option_value . '</li>';
-			}
-		}
-		echo '</ul>';
-	} else {
-		echo '<p>No options found containing "ai1wm".</p>';
-	}
-
-	// Check folder permission of /wp-content/
-	$wpcontent_path = $_SERVER['DOCUMENT_ROOT'] . '/wp-content/';
-	echo "wp-content path: " . $wpcontent_path . "<br><br>";
-	if (!is_writable($wpcontent_path)) {
-		echo '<div class="error"><p>Permission denied: /wp-content/ is not writable.</p></div>';
-		return;
-	} else {
-		// List all files and folders in the directory and permission in table format
-		$files = scandir($wpcontent_path);
-		echo '<table>';
-		echo '<tr><th>File/Folder</th><th>Writable</th></tr>';
-		foreach ($files as $file) {
-			// if file start with temp-write-test, delete it
-			if (strpos($file, 'temp-write-test') === 0) {
-				unlink($wpcontent_path . $file);
-			}
-			if ($file != '.' && $file != '..') {
-				$is_writable = is_writable($wpcontent_path . $file) ? 'Yes' : 'No';
-				echo '<tr><td>' . htmlspecialchars($file) . '</td><td>' . $is_writable . '</td></tr>';
-			}
-		}
-		echo '</table>'; // Changed from </ul> to </table>
+	// if site id is 1, skip
+	if ($site_id == 1){
+		utm_aiwm_options();
+		utm_wpcontent_list();
 	}
 
 	// blogsdir migration
-	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "/wp-content/blogs.dir/". $site_id . "/files";
+	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/blogs.dir/". $site_id . "/files";
 	$search = $blogsdir_path;
 	if ($site_id == 1){
 		$uploaddir_path = $_SERVER['DOCUMENT_ROOT'] . "/wp-content/uploads";
@@ -92,11 +38,13 @@ function utm_fixuploadpath(){
 	$replace = $uploaddir_path;
 
 	// Sanitize user input
-	$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
-	$replace = isset($_GET['replace']) ? sanitize_text_field($_GET['replace']) : '';
+	$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : $search;
+	$replace = isset($_GET['replace']) ? sanitize_text_field($_GET['replace']) : $replace;
 	$delete_option = isset($_GET['delete_option']) ? sanitize_text_field($_GET['delete_option']) : '';
 
 	$upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
+	$upload_url_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_url_path'");
+
 	if ($upload_path != ''){
 		// set upload path to default
 		$wpdb->insert($option_table, array('option_name' => 'upload_path', 'option_value' => ''));
@@ -105,16 +53,13 @@ function utm_fixuploadpath(){
 
     // Starting the HTML wrapper for the admin page
     echo '<div class="wrap">';
-    echo '<h1>Fix Upload Path</h1><p>This tool is for fixing multiple issues path for this site</p>';
+    echo '<p>This tool is for fixing multiple issues path for this site</p>';
     // Menus:
     echo '<ul>';
-	$upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
-    echo '<li>Upload path: ' . htmlspecialchars($upload_path) . ' - <a href="?page=fix-media&delete_option=upload_path">Delete upload_path option</a></li>';
-    $upload_url_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_url_path'");
-    echo '<li>Upload URL path: ' . htmlspecialchars($upload_url_path) . ' - <a href="?page=fix-media&delete_option=upload_url_path">Delete upload_url_path option</a></li>';
+    echo '<li>Upload path: ' . htmlspecialchars($upload_path) . ' <a href="?page=fix-media&delete_option=upload_path">[Delete upload_path option]</a></li>';
+    echo '<li>Upload URL path: ' . htmlspecialchars($upload_url_path) . ' <a href="?page=fix-media&delete_option=upload_url_path">[Delete upload_url_path option]</a></li>';
     echo '<li><a href="?page=fix-media&msfiles=true">Set ms-files to 0</a></li>';
-	echo '<li><a href="?page=fix-media&migration=true">Migrate From Blogs.Dir</a></li>';
-    echo '</ul>'; // Close the first <ul> tag
+    echo '</ul>';
 
 	echo '<h2>Search and Replace</h2>';
 	// Forms:
@@ -126,20 +71,43 @@ function utm_fixuploadpath(){
 	echo '<input type="text" id="replace" name="replace" value="'.$replace.'" style="width: 80%;"><br>';
 	echo '<label for="delete_option">Delete Option: </label>';
 	echo '<input type="text" id="delete_option" name="delete_option" value="'.$delete_option.'" style="width: 80%;"><br>';
-    echo '<input type="checkbox" id="file_migration" name="file_migration" value="0"> Migrate File ';
-	echo '<input type="checkbox" id="dry_run" name="dry_run" value="0"> Apply Changes<br>';
+    echo '<input type="checkbox" id="file_migration" name="file_migration" value="1"> Migrate File ';
+	echo '<input type="checkbox" id="dry_run" name="dry_run" value="true" checked> Dry Run<br>';
     echo '<input type="submit" value="Run">';
 	echo '<input type="hidden" name="utm_nonce" value="' . wp_create_nonce('utm_fixuploadpath') . '">';
     echo '</form>';
 
-	// Verify nonce before processing
+	// List files and folder in blogs.dir
+	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "wp-content/blogs.dir/". $site_id;
+
+	echo "<h2>Blogs.dir</h2>";
+	echo "<p>Blogs.dir path: " . $blogsdir_path . "</p>";
+
+	if (is_dir($blogsdir_path)) {
+		echo "<h3>Files and folders in blogs.dir:</h3>";
+		echo "<pre>" . print_r(scandir($blogsdir_path), true) . "</pre>";
+	} else {
+		echo "<h2>Blogs.dir not found</h2>";
+	}
+
+	// if blogs.dir exists but is empty, delete it
+	if (is_dir($blogsdir_path) && count(scandir($blogsdir_path)) == 2) {
+		echo "<h2>Blogs.dir is empty</h2>";
+		echo "<p>Deleting empty blogs.dir...</p>";
+		rrmdir($blogsdir_path);
+		echo "<p>Deleted empty blogs.dir</p>";
+	} else if (is_dir($blogsdir_path) && count(scandir($blogsdir_path)) > 2) {
+		echo "<h2>Blogs.dir not empty</h2>";
+	}
+
+	// Check if nonce is set and valid
 	if (!isset($_GET['utm_nonce']) || !wp_verify_nonce($_GET['utm_nonce'], 'utm_fixuploadpath')) {
-		wp_die('Unauthorized request');
+		return;
 	}
 
     // Perform search and replace on multiple tables and columns
-    if (isset($search) && isset($replace)) {
-        $dry_run = !isset($_GET['dry_run']) || $_GET['dry_run'] != '0';
+    if (isset($search) && isset($replace) && $search != '' && $replace != '') {
+		$dry_run = !empty($_GET['dry_run']);
 
         $output_posts = search_replace_all_columns($posts_table, $search, $replace, $dry_run);
         $output_postmeta = search_replace_all_columns($postmeta_table, $search, $replace, $dry_run);
@@ -161,6 +129,9 @@ function utm_fixuploadpath(){
 	 * Source: https://anchor.host/removing-legacy-ms-files-php-from-multisite/
 	 */
 	if (isset($_GET['msfiles'])){
+		$meta_key = 'ms_files_rewriting';
+    	$meta_value = '0';
+
 		// Check if the meta_key already exists
 		$meta_exists = $wpdb->get_var($wpdb->prepare(
 			"SELECT COUNT(*) FROM $sitemeta_table WHERE meta_key = %s",
@@ -203,7 +174,7 @@ function utm_fixuploadpath(){
 		}
 		echo "<br>Blogs.dir path: " . $blogsdir_path;
 		echo "<br>Upload dir path: " . $uploaddir_path . "<br>";
-		merge_directories($blogsdir_path, $uploaddir_path, $_GET['dry_run']);
+		merge_directories($blogsdir_path, $uploaddir_path, !empty($_GET['dry_run']));
 		return;
 	}
 
@@ -211,9 +182,9 @@ function utm_fixuploadpath(){
 	 * Delete option from option table
 	 *
 	 */
-	if (isset($delete_option)){
-		$wpdb->delete($option_table, array('option_name' => $_GET['delete_option']));
-		echo "Deleted option: " . $_GET['delete_option'];
+	if (isset($delete_option) && $delete_option != '') {
+		$wpdb->delete($option_table, array('option_name' => $delete_option));
+		echo "Deleted option: " . $delete_option . "<br>";
 	}
 
 	/*
@@ -353,7 +324,7 @@ function utm_fixuploadpath(){
 								$admin_notice .= '<p>Source folder: ' . $old_path . '</p>';
 								$admin_notice .= '<p>Destination folder: ' . $new_path . '</p>';
 								// merge directories
-								merge_directories($old_path, $new_path);
+								merge_directories($old_path, $new_path, $_GET['dry_run']);
 								$move_status = 'Yes';
 							}
 						}
@@ -475,7 +446,8 @@ function utm_fixuploadpath(){
 	echo '</div>';  // Closing wrap div
 }
 
-function merge_directories($source, $destination, $dry_run = false){
+function merge_directories($source, $destination, $dry_run = true){
+	echo "<br>============= Merge Directories ==========<br>";
 	echo "Source: $source<br>";
 	echo "Destination: $destination<br>";
 	
@@ -512,21 +484,26 @@ function merge_directories($source, $destination, $dry_run = false){
 		echo "Processing: $srcFile<br>";
 
         $srcFile = $source . '/' . $file;
-        $destFile = $destination . '/' . $file;
+        $destFile = str_replace('/files', '', $destination . '/' . $file);
+
+		echo "<br>============= Moving Files ============<br>";
+		echo "Source file: $srcFile<br>";
+		echo "Destination file: $destFile<br>";
+		echo "File: " . $file . "<br>";
 
         if (is_dir($srcFile)) {
             merge_directories($srcFile, $destFile, $dry_run);
         } else {
             if (file_exists($destFile)) {
                 echo "Destination file exists: $destFile<br>";
-                if ($dry_run) {
+                if (!$dry_run) {
                     unlink($srcFile);
                     echo "Deleted source file: $srcFile<br>";
                 }
             } else {
                 if (copy($srcFile, $destFile)) {
                     echo "Copied file: $srcFile to $destFile<br>";
-                    if ($dry_run) {
+                    if (!$dry_run) {
                         unlink($srcFile);
                         echo "Deleted source file: $srcFile<br>";
                     }
@@ -539,9 +516,12 @@ function merge_directories($source, $destination, $dry_run = false){
 
 	closedir($dir);
 
-    if ($dry_run && is_dir_empty($source)) {
-        rmdir($source);
-        echo "Deleted empty source directory: $source<br>";
+    if (!$dry_run && is_dir_empty($source)) {
+        if (rmdir($source)) {
+            echo "Deleted empty source directory: $source<br>";
+        } else {
+            echo "Failed to delete empty source directory: $source<br>";
+        }
     }
 
 	return;
@@ -696,4 +676,67 @@ function search_replace_all_columns($table, $search, $replace, $dry_run = false)
     global $wpdb;
     $columns = $wpdb->get_col("DESC $table", 0);
     return universal_search_replace($table, $columns, $search, $replace, $dry_run);
+}
+
+function utm_aiwm_options(){
+	global $wpdb;
+	$option_table = $wpdb->prefix . "options";
+	// Find in option table where option name contain ai1wm
+	$ai1wm_options = $wpdb->get_results("SELECT * FROM $option_table WHERE option_name LIKE '%ai1wm%'");
+	if (!empty($ai1wm_options)) {
+		echo '<h2>AI1WM Options</h2><ul>';
+		foreach ($ai1wm_options as $option) {
+			$option_name = htmlspecialchars($option->option_name);
+			$option_value = htmlspecialchars($option->option_value);
+
+			// Check if the option is ai1wm_backups_path and fix the path if needed
+			if ($option->option_name === 'ai1wm_backups_path') {
+				$current_path = $option->option_value;
+				$correct_path = WP_CONTENT_DIR . '/ai1wm-backups'; // Rebuild the correct path dynamically
+
+				// If the current path is incorrect, update it
+				if ($current_path !== $correct_path) {
+					$wpdb->update(
+						$option_table,
+						array('option_value' => $correct_path),
+						array('option_name' => 'ai1wm_backups_path')
+					);
+					echo '<li>' . $option_name . ': <strong>Path corrected to:</strong> ' . htmlspecialchars($correct_path) . '</li>';
+				} else {
+					echo '<li>' . $option_name . ': ' . $option_value . '</li>';
+				}
+			} else {
+				echo '<li>' . $option_name . ': ' . $option_value . '</li>';
+			}
+		}
+		echo '</ul>';
+	} else {
+		echo '<p>No options found containing "ai1wm".</p>';
+	}
+}
+
+function utm_wpcontent_list(){
+	// Check folder permission of /wp-content/
+	$wpcontent_path = $_SERVER['DOCUMENT_ROOT'] . '/wp-content/';
+	echo "wp-content path: " . $wpcontent_path . "<br><br>";
+	if (!is_writable($wpcontent_path)) {
+		echo '<div class="error"><p>Permission denied: /wp-content/ is not writable.</p></div>';
+		return;
+	} else {
+		// List all files and folders in the directory and permission in table format
+		$files = scandir($wpcontent_path);
+		echo '<table>';
+		echo '<tr><th>File/Folder</th><th>Writable</th></tr>';
+		foreach ($files as $file) {
+			// if file start with temp-write-test, delete it
+			if (strpos($file, 'temp-write-test') === 0) {
+				unlink($wpcontent_path . $file);
+			}
+			if ($file != '.' && $file != '..') {
+				$is_writable = is_writable($wpcontent_path . $file) ? 'Yes' : 'No';
+				echo '<tr><td>' . htmlspecialchars($file) . '</td><td>' . $is_writable . '</td></tr>';
+			}
+		}
+		echo '</table>'; // Changed from </ul> to </table>
+	}
 }
