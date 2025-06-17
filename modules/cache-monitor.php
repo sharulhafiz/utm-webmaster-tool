@@ -67,7 +67,26 @@ function cm_render_dashboard()
 {
     $log_dir = WP_CONTENT_DIR . '/cache_logs';
     $log_files = glob($log_dir . '/*.log');
-    echo '<div class="wrap"><h1>Cache Hit Log</h1><pre>';
+    $parsed_stats = parse_logs_by_site_and_status();
+
+    // Calculate totals
+    $total_hits = array_sum($parsed_stats['hits']);
+    $total_misses = array_sum($parsed_stats['misses']);
+    $total_requests = $total_hits + $total_misses;
+    $hit_percentage = $total_requests > 0 ? round(($total_hits / $total_requests) * 100, 2) : 0;
+    $miss_percentage = $total_requests > 0 ? round(($total_misses / $total_requests) * 100, 2) : 0;
+
+    echo '<div class="wrap"><h1>Cache Hit Log</h1>';
+
+    // Show summary at the top
+    echo '<div style="margin-bottom:2em;padding:1em;background:#f8f8f8;border:1px solid #ddd;display:inline-block;">';
+    echo '<strong>Total Requests:</strong> ' . esc_html($total_requests) . '<br>';
+    echo '<strong>Cache Hits:</strong> ' . esc_html($total_hits) . ' (' . esc_html($hit_percentage) . '%)<br>';
+    echo '<strong>Cache Misses:</strong> ' . esc_html($total_misses) . ' (' . esc_html($miss_percentage) . '%)';
+    echo '</div>';
+
+    // List logs at the bottom
+    echo '<pre style="margin-top:2em;">';
     if (!empty($log_files)) {
         foreach ($log_files as $log_file) {
             echo esc_html(file_get_contents($log_file));
@@ -76,36 +95,6 @@ function cm_render_dashboard()
         echo 'No data logged yet.';
     }
     echo '</pre></div>';
-    $parsed_stats = parse_logs_by_site_and_status();
-
-    ?>
-    <canvas id="cacheChart" width="800" height="400"></canvas>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-    const chartData = <?php echo json_encode($parsed_stats); ?>;
-
-    const ctx = document.getElementById('cacheChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: chartData.labels,
-            datasets: [
-                {
-                    label: 'Cache Hits',
-                    data: chartData.hits,
-                    backgroundColor: 'rgba(75, 192, 192, 0.6)'
-                },
-                {
-                    label: 'Cache Misses',
-                    data: chartData.misses,
-                    backgroundColor: 'rgba(255, 99, 132, 0.6)'
-                }
-            ]
-        },
-        options: { responsive: true }
-    });
-    </script>
-    <?php
 }
 
 function parse_logs_by_site_and_status() {
