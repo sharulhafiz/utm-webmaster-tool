@@ -66,17 +66,89 @@ if (is_multisite()) {
 function cm_render_dashboard()
 {
     $log_dir = WP_CONTENT_DIR . '/cache_logs';
-    $log_files = glob($log_dir . '/*.log');
-    $parsed_stats = parse_logs_by_site_and_status();
+    $today = date('Y-m-d');
+    $today_log_file = $log_dir . '/cache_hits_' . $today . '.log';
+    $log_files = file_exists($today_log_file) ? [$today_log_file] : [];
+    $parsed_stats = parse_logs_by_site_and_status($today);
 
-    // Calculate totals
+    // Calculate totals for today
     $total_hits = array_sum($parsed_stats['hits']);
     $total_misses = array_sum($parsed_stats['misses']);
     $total_requests = $total_hits + $total_misses;
     $hit_percentage = $total_requests > 0 ? round(($total_hits / $total_requests) * 100, 2) : 0;
     $miss_percentage = $total_requests > 0 ? round(($total_misses / $total_requests) * 100, 2) : 0;
 
-    echo '<div class="wrap"><h1>Cache Hit Log</h1>';
+    // --- Hourly grouping for bar graph ---
+    $hourly = [];
+    if (!empty($log_files)) {
+        foreach ($log_files as $log_file) {
+            $lines = file($log_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            foreach ($lines as $line) {
+                if (preg_match('/\[(\d{4}-\d{2}-\d{2}) (\d{2}):\d{2}:\d{2})\].*-\s+(\w+)/', $line, $m)) {
+                    $hour = $m[2];
+                    $status = strtolower($m[3]);
+                    if (!isset($hourly[$hour])) $hourly[$hour] = ['hit' => 0, 'missed' => 0];
+                    if ($status === 'served') {
+                        $hourly[$hour]['hit']++;
+                    } else {
+                        $hourly[$hour]['missed']++;
+                    }
+                }
+            }
+        }
+    }
+    // Prepare data for JS
+    $hours = [];
+    $hits = [];
+    $misses = [];
+    for ($h = 0; $h < 24; $h++) {
+        $label = str_pad($h, 2, '0', STR_PAD_LEFT);
+        $hours[] = $label;
+        $hits[] = isset($hourly[$label]['hit']) ? $hourly[$label]['hit'] : 0;
+        $misses[] = isset($hourly[$label]['missed']) ? $hourly[$label]['missed'] : 0;
+    }
+
+    echo "<div class=\"wrap\"><h1>Cache Hit Log ($today)</h1>";
+
+    // --- Bar graph container ---
+    ?>
+    <canvas id="cm-hourly-bar" width="800" height="300" style="max-width:100%;margin-bottom:2em;background:#fff;border:1px solid #eee"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var ctx = document.getElementById('cm-hourly-bar').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: <?php echo json_encode($hours); ?>,
+                datasets: [
+                    {
+                        label: 'Hits',
+                        data: <?php echo json_encode($hits); ?>,
+                        backgroundColor: 'rgba(54, 162, 235, 0.7)'
+                    },
+                    {
+                        label: 'Misses',
+                        data: <?php echo json_encode($misses); ?>,
+                        backgroundColor: 'rgba(255, 99, 132, 0.7)'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: 'Cache Hits & Misses by Hour' }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Hour' } },
+                    y: { title: { display: true, text: 'Count' }, beginAtZero: true }
+                }
+            }
+        });
+    });
+    </script>
+    <?php
 
     // Show summary at the top
     echo '<div style="margin-bottom:2em;padding:1em;background:#f8f8f8;border:1px solid #ddd;display:inline-block;">';
@@ -85,21 +157,29 @@ function cm_render_dashboard()
     echo '<strong>Cache Misses:</strong> ' . esc_html($total_misses) . ' (' . esc_html($miss_percentage) . '%)';
     echo '</div>';
 
-    // List logs at the bottom
+    // List today's logs at the bottom
     echo '<pre style="margin-top:2em;">';
     if (!empty($log_files)) {
         foreach ($log_files as $log_file) {
-            echo esc_html(file_get_contents($log_file));
+            $lines = file($log_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if ($lines) {
+                $lines = array_reverse($lines); // Show latest at the top
+                echo esc_html(implode("\n", $lines));
+            }
         }
     } else {
-        echo 'No data logged yet.';
+        echo 'No data logged yet for today.';
     }
     echo '</pre></div>';
 }
 
-function parse_logs_by_site_and_status() {
+function parse_logs_by_site_and_status($date = null) {
     $stats = [];
-    foreach (glob(WP_CONTENT_DIR . '/cache_logs/cache_hits_*.log') as $file) {
+    $pattern = WP_CONTENT_DIR . '/cache_logs/cache_hits_*.log';
+    if ($date) {
+        $pattern = WP_CONTENT_DIR . '/cache_logs/cache_hits_' . $date . '.log';
+    }
+    foreach (glob($pattern) as $file) {
         foreach (file($file) as $line) {
             if (preg_match('/Site #(\d+)\s+([^\s]+)\s+-\s+([^\s]+)/', $line, $match)) {
                 $site_id = $match[1];
@@ -115,7 +195,7 @@ function parse_logs_by_site_and_status() {
             }
         }
     }
-    // Prepare data for Chart.js
+    // Prepare data for summary
     $labels = array_keys($stats);
     $hits = [];
     $misses = [];
@@ -129,3 +209,4 @@ function parse_logs_by_site_and_status() {
         'misses' => $misses
     ];
 }
+
