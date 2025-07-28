@@ -8,6 +8,10 @@ $allowed_websites = [
     'www.utm.my' => [
         'url' => 'https://www.utm.my',
         'chatbot_id' => 'brand-utm-my'
+    ],
+    'ppmu.utm.my' => [
+        'url' => 'https://ppmu.utm.my',
+        'chatbot_id' => 'ppmu-utm-my'
     ]
 ];
 
@@ -155,6 +159,7 @@ function utm_chatbot_settings_page() {
                             <img src="<?php echo esc_url($chatbot_avatar_url); ?>" alt="Chatbot Avatar" style="max-width: 100px; display: block; margin-bottom: 10px;">
                         <?php endif; ?>
                         <input type="file" name="utm_chatbot_avatar" id="utm_chatbot_avatar">
+                        <p class="description">Recommended size: 200x115px. Upload an image to use as the chatbot avatar.</p>
                     </td>
                 </tr>
                 <tr>
