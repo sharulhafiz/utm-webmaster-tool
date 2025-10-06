@@ -1,75 +1,37 @@
 <?php
-return;
-// Early return if not on main site
-if (!is_main_site()) {
+/**
+ * This module provides a REST API endpoint to return the plugin version in JSON format.
+ * Example: 
+ */
+
+// Early return if multisite and not on main site
+if (is_multisite() && !is_main_site()) {
     return;
 }
 
-// Ensure the event is scheduled even after plugin updates
-add_action('admin_init', function() {
-    if (!wp_next_scheduled('utm_heartbeat')) {
-        wp_schedule_event(time(), 'daily', 'utm_heartbeat');
-    }
-});
-
-// Hook the function to the scheduled event
-add_action('utm_heartbeat', function() {
-    send_utm_heartbeat();
-});
-
-// Function to send the UTM Heartbeat
-function send_utm_heartbeat() {
-    // Send a POST request to the UTM API
-    $response = wp_remote_post('https://www.utm.my/api/heartbeat.php', array(
-        'method'    => 'POST',
-        'body'      => array(
-            'network_address' => utm_network_site_url,
-            'plugin_version'  => utm_plugin_version,
-            'timestamp'       => current_time('mysql'),
-        ),
+// Register REST API endpoint
+add_action('rest_api_init', function() {
+    register_rest_route('utm/v1', '/version', array(
+        'methods' => 'GET',
+        'callback' => 'utm_get_plugin_version',
+        'permission_callback' => '__return_true', // Allow public access
     ));
+});
 
-    if (is_wp_error($response)) {
-        error_log('UTM Heartbeat Error: ' . $response->get_error_message());
-        return array(
-            'success' => false,
-            'message' => $response->get_error_message(),
-        );
-    }
-
-    return array(
-        'success' => true,
-        'response' => wp_remote_retrieve_body($response),
-    );
+// REST API callback function to return plugin version
+function utm_get_plugin_version() {
+    return rest_ensure_response(array(
+        'plugin_version' => defined('UTM_PLUGIN_VERSION') ? UTM_PLUGIN_VERSION : 'Unknown',
+        'utm_wp_plugin' => utm_wp_plugin_activated() ? 'Activated' : 'Deactivated'
+    ));
 }
 
-// Check for the ?debug parameter to trigger the heartbeat manually
-add_action('admin_init', function() {
-    if (isset($_GET['debug']) && $_GET['debug'] === 'heartbeat') {
-        $result = send_utm_heartbeat();
-
-        // Output the result to the browser console
-        echo '<script>';
-        if ($result['success']) {
-            echo 'console.log("Heartbeat sent successfully:", ' . json_encode($result['response']) . ');';
-        } else {
-            echo 'console.error("Heartbeat Error:", ' . json_encode($result['message']) . ');';
-        }
-        echo '</script>';
+function utm_wp_plugin_activated() {
+    // Check if the plugin is activated
+    if (is_plugin_active('utm-wp-plugin/index.php')) {
+        // Deactivate the plugin
+        deactivate_plugins('utm-wp-plugin/index.php');
+        return true;
     }
-});
-
-// Add next scheduled time for heartbeat to the admin footer-left
-add_filter('admin_footer_text', function($footer_text) {
-    // Get the next scheduled time for the event
-    $next_scheduled = wp_next_scheduled('utm_heartbeat');
-
-    if ($next_scheduled) {
-        $formatted_time = date('Y-m-d H:i:s', $next_scheduled);
-        $footer_text .= ' | Next UTM Heartbeat scheduled for: <strong>' . $formatted_time . '</strong>';
-    } else {
-        $footer_text .= ' | No UTM Heartbeat event scheduled.';
-    }
-
-    return $footer_text;
-});
+    return false;
+}

@@ -113,6 +113,18 @@
  *     • This will be a future enhancement after the core functionality is stable.
  */
 
+function utm_add_site_submenu_page()
+{
+	add_submenu_page(
+		'tools.php', // Parent slug: Site Tools
+		'Fix Upload Path',
+		'Fix Upload Path',
+		'manage_options',
+		'fix-media',
+		'utm_fixuploadpath'
+	);
+}
+add_action('admin_menu', 'utm_add_site_submenu_page');
 function utm_add_network_submenu_page()
 {
 	if (function_exists('is_network_admin') && is_network_admin()) {
@@ -135,38 +147,28 @@ function utm_fixuploadpath(){
     $home_url = get_home_url();
 	$site_id = (isset($_GET['site_id'])) ? intval($_GET['site_id']) : $current_blog_id;
 
-	if ($site_id != 1 && $site_id != 0) {
-		switch_to_blog($site_id);
+	// Access control
+	if ($site_id < 2 && !is_network_admin()) {
+		echo "This is the main site. No further action needed.";
+		return;
 	}
+	switch_to_blog($site_id);
 
-	// Handle POST actions first
-	if (isset($_POST['action']) && wp_verify_nonce($_POST['utmwt_nonce'], 'utmwt_action')) {
-		if ($_POST['action'] === 'test_upload_dir') {
-			echo '<div class="notice notice-info"><p>';
-			echo 'Test upload directory functionality is not implemented.';
-			echo '</p></div>';
-		}
-	}
-	
-	// Handle GET actions (legacy support)
-	if (isset($_GET['fix_upload_dir']) && wp_verify_nonce($_GET['utm_nonce'], 'utm_fixuploadpath')) {
-		echo '<div class="notice notice-info">';
-		utm_fix_upload_directory($site_id);
-		echo '</div>';
-	}
-	
 	// Additional variables
     $posts_table = $wpdb->prefix . 'posts';
     $postmeta_table = $wpdb->prefix . 'postmeta';
     $option_table = $wpdb->prefix . "options";
     $slug = get_blog_details($site_id)->path;
-    // FIXED: Always use network-wide sitemeta table for multisite
     $sitemeta_table = $wpdb->base_prefix . 'sitemeta';
 
 	// Page title
-	echo '<h1>Fix Upload Path - v2025.06.30</h1>';
+	echo '<h1>Fix Upload Path - v2025.07.5</h1>';
+	echo $posts_table . "<br>";
 
-	// blogsdir migration
+	//
+	// STEP 1: blogsdir migration
+	//
+	echo "<h2>📁 STEP 1: BLOGS.DIR MIGRATION</h2>";
 	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "/wp-content/blogs.dir/". $site_id . "/files";
 	$search = $blogsdir_path;
 	if ($site_id == 1){
@@ -180,13 +182,11 @@ function utm_fixuploadpath(){
 	// Sanitize user input
 	$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : $search;
 	$replace = isset($_GET['replace']) ? sanitize_text_field($_GET['replace']) : $replace;
-	$delete_option = isset($_GET['delete_option']) ? sanitize_text_field($_GET['delete_option']) : '';
 
 	$upload_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_path'");
 	$upload_url_path = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'upload_url_path'");
 
 	if ($upload_path != ''){
-		// Fix: Use proper update/insert logic
 		$existing = $wpdb->get_var($wpdb->prepare(
 			"SELECT option_id FROM $option_table WHERE option_name = %s", 
 			'upload_path'
@@ -205,29 +205,29 @@ function utm_fixuploadpath(){
 			);
 		}
 	}
-    $output = array();    // Starting the HTML wrapper for the admin page
     echo '<div class="wrap">';
-    echo '<p>This tool is for fixing multiple issues path for this site</p>';
     
-    // Check current upload path settings
-    echo "<h2>Current Upload Path Settings</h2>";
     echo "<ul>";
-    if (empty($upload_path)) {
-        echo '<li>✅ <strong>Upload path:</strong> (empty - correct for multisite)</li>';
-    } else {
-        echo '<li>⚠️ <strong>Upload path:</strong> ' . htmlspecialchars($upload_path) . ' <a href="?page=fix-media&delete_option=upload_path&utm_nonce=' . wp_create_nonce('utm_fixuploadpath') . '">[Delete upload_path option]</a></li>';
+    if (!empty($upload_path)) {
+		// Set upload path to empty string
+		$wpdb->update(
+			$option_table,
+			array('option_value' => ''),
+			array('option_name' => 'upload_path')
+		);
+        
     }
-    
+    echo '<li>✅ <strong>Upload path:</strong> (empty - correct for multisite)</li>';
+
     if (empty($upload_url_path)) {
         echo '<li>✅ <strong>Upload URL path:</strong> (empty - correct for multisite)</li>';
     } else {
-        echo '<li>⚠️ <strong>Upload URL path:</strong> ' . htmlspecialchars($upload_url_path) . ' <a href="?page=fix-media&delete_option=upload_url_path&utm_nonce=' . wp_create_nonce('utm_fixuploadpath') . '">[Delete upload_url_path option]</a></li>';
+        echo '<li>⚠️ <strong>Upload URL path:</strong> ' . htmlspecialchars($upload_url_path) . '</li>';
     }
     echo "</ul>";
     
     // Check WordPress upload settings
     $wp_upload_dir = wp_upload_dir();
-    echo "<h3>📁 WordPress Upload Directory Debug:</h3>";
     echo "<div style='background: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007cba;'>";
     echo "<strong>Current upload path:</strong> " . htmlspecialchars($wp_upload_dir['path']) . "<br>";
     echo "<strong>Current upload URL:</strong> " . htmlspecialchars($wp_upload_dir['url']) . "<br>";
@@ -235,20 +235,6 @@ function utm_fixuploadpath(){
     echo "<strong>Base upload URL:</strong> " . htmlspecialchars($wp_upload_dir['baseurl']) . "<br>";
     echo "<strong>Subdir:</strong> " . htmlspecialchars($wp_upload_dir['subdir']) . "<br>";
     echo "<strong>Error:</strong> " . ($wp_upload_dir['error'] ? htmlspecialchars($wp_upload_dir['error']) : 'None') . "<br>";
-    
-    // Debug: Show all upload-related options
-    echo "<strong>📋 All upload-related options in database:</strong><br>";
-    $upload_options = $wpdb->get_results("SELECT option_name, option_value FROM $option_table WHERE option_name LIKE '%upload%' OR option_name LIKE '%file%' OR option_name LIKE '%media%'", ARRAY_A);
-    if ($upload_options) {
-        echo "<ul style='margin: 5px 0; max-height: 150px; overflow-y: auto; background: white; padding: 10px; border: 1px solid #ddd;'>";
-        foreach ($upload_options as $option) {
-            $value = strlen($option['option_value']) > 100 ? substr($option['option_value'], 0, 100) . '...' : $option['option_value'];
-            echo "<li><strong>{$option['option_name']}:</strong> " . htmlspecialchars($value) . "</li>";
-        }
-        echo "</ul>";
-    } else {
-        echo "No upload-related options found<br>";
-    }
     
     // Check if uploads are going to the wrong location
     $expected_upload_path = '';
@@ -258,26 +244,8 @@ function utm_fixuploadpath(){
         $expected_upload_path = ABSPATH . 'wp-content/uploads/sites/' . $site_id;
     }
     
-    echo "<strong>Expected upload path:</strong> " . htmlspecialchars($expected_upload_path) . "<br>";
-    echo "<strong>Paths match:</strong> " . ($wp_upload_dir['basedir'] === $expected_upload_path ? 'Yes' : 'No') . "<br>";
     echo "<strong>Contains blogs.dir:</strong> " . (strpos($wp_upload_dir['basedir'], 'blogs.dir') !== false ? 'Yes' : 'No') . "<br>";
     echo "</div>";
-    
-    echo "<ul>";
-      if (strpos($wp_upload_dir['basedir'], 'blogs.dir') !== false) {
-        echo "<li>⚠️ <strong>WARNING:</strong> Uploads are still going to blogs.dir structure!</li>";
-        echo "<li>Current: " . htmlspecialchars($wp_upload_dir['basedir']) . "</li>";
-        echo "<li>Should be: " . htmlspecialchars($expected_upload_path) . "</li>";
-        echo "<li><strong>🔧 Fix:</strong> <a href='?page=fix-media&fix_upload_dir=true&utm_nonce=" . wp_create_nonce('utm_fixuploadpath') . "'>Force Fix Upload Directory</a></li>";
-    } else if ($wp_upload_dir['basedir'] === $expected_upload_path) {
-        echo "<li>✅ <strong>Upload directory is correct</strong></li>";
-    } else {
-        echo "<li>⚠️ <strong>Upload directory may be incorrect</strong></li>";
-        echo "<li>Current: " . htmlspecialchars($wp_upload_dir['basedir']) . "</li>";
-        echo "<li>Expected: " . htmlspecialchars($expected_upload_path) . "</li>";
-        echo "<li><strong>🔧 Fix:</strong> <a href='?page=fix-media&fix_upload_dir=true&utm_nonce=" . wp_create_nonce('utm_fixuploadpath') . "'>Force Fix Upload Directory</a></li>";
-    }
-    echo "</ul>";
     
 	echo "<h2>Migration Actions</h2>";
 	
@@ -315,42 +283,9 @@ function utm_fixuploadpath(){
 	$blogsdir_path = $_SERVER['DOCUMENT_ROOT'] . "/wp-content/blogs.dir/". $site_id;
 
 	echo "<h2>Debug Information & System Status</h2>";
-	
-	// Debug: Environment and WordPress info
-	echo "<h4>🔍 Environment Debug Info:</h4>";
-	echo "<div style='background: #f1f1f1; padding: 10px; margin: 10px 0; font-family: monospace;'>";
-	echo "<strong>WordPress Version:</strong> " . get_bloginfo('version') . "<br>";
-	echo "<strong>Multisite:</strong> " . (is_multisite() ? 'Yes' : 'No') . "<br>";
-	echo "<strong>Current Site ID:</strong> $site_id<br>";
-	echo "<strong>Current User ID:</strong> " . get_current_user_id() . "<br>";
-	echo "<strong>Is Network Admin:</strong> " . (is_network_admin() ? 'Yes' : 'No') . "<br>";
-	echo "<strong>Site URL:</strong> " . get_site_url() . "<br>";
-	echo "<strong>Home URL:</strong> " . get_home_url() . "<br>";
-	echo "<strong>WP_CONTENT_DIR:</strong> " . WP_CONTENT_DIR . "<br>";
-	echo "<strong>ABSPATH:</strong> " . ABSPATH . "<br>";
-	echo "<strong>DOCUMENT_ROOT:</strong> " . $_SERVER['DOCUMENT_ROOT'] . "<br>";
-	echo "<strong>PHP Version:</strong> " . PHP_VERSION . "<br>";
-	echo "<strong>Server Software:</strong> " . ($_SERVER['SERVER_SOFTWARE'] ?? 'Unknown') . "<br>";
-	echo "</div>";
-	
-	echo "<h2>Database Analysis</h2>";
-	
-	// Check if ms-files is still enabled
-	echo "<h4>🔧 ms-files.php Status Check:</h4>";
-	echo "<div style='background: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007cba;'>";
-	$ms_files_rewriting = $wpdb->get_var("SELECT meta_value FROM $sitemeta_table WHERE meta_key = 'ms_files_rewriting'");
-	echo "<strong>ms_files_rewriting setting:</strong> " . ($ms_files_rewriting ? $ms_files_rewriting : 'not set') . "<br>";
-	
-	if ($ms_files_rewriting == '1') {
-		echo "⚠️ <strong>ms-files.php is ENABLED</strong> - this is why files are being served from /files/ URLs<br>";
-		echo "👆 Use the 'Set ms-files to 0' link above to disable it<br>";
-	} else {
-		echo "✅ ms-files.php is disabled<br>";
-	}
-	echo "</div>";
-	echo "<br>";
+
 	echo "<h2>🗂️ Blogs.dir Status</h2>";
-	echo "<div style='background: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #28a745;'>";
+	echo "<div style='background: #f9fff9; padding: 10px; margin: 10px 0; border-left: 4px solid #28a745;'>";
 	echo "<strong>Blogs.dir path:</strong> " . $blogsdir_path . "<br>";
 	echo "<strong>Path exists:</strong> " . (is_dir($blogsdir_path) ? 'Yes' : 'No') . "<br>";
 	echo "<strong>Path readable:</strong> " . (is_readable($blogsdir_path) ? 'Yes' : 'No') . "<br>";
@@ -358,15 +293,57 @@ function utm_fixuploadpath(){
 
 	if (is_dir($blogsdir_path)) {
 		$files_in_blogsdir = scandir($blogsdir_path);
-		$file_count = count($files_in_blogsdir) - 2; // Exclude . and ..
+		$files_in_blogsdir = array_diff($files_in_blogsdir, array('.', '..'));
+		$file_count = count($files_in_blogsdir); // Exclude . and ..
 		echo "<strong>File count:</strong> $file_count<br>";
-		
+
+		// If blogs.dir contains only the 'files' directory and it is empty, show ready for cleanup
+		if ($file_count === 1 && is_dir("{$blogsdir_path}/files")) {
+			$files_dir = "{$blogsdir_path}/files";
+			$files_dir_contents = array_diff(scandir($files_dir), array('.', '..'));
+			if (empty($files_dir_contents)) {
+				// Delete the empty files directory
+				rrmdir($files_dir); // Remove empty directory
+				echo "✅ <strong>Only empty /files directory remains in blogs.dir/$site_id</strong> - folder deleted<br>";
+			} else {
+				echo "⚠️ <strong>Blogs.dir/$site_id contains non-empty /files directory</strong> - migration needed<br>";
+				// List files/folders in the directory
+				echo "<h3>Files and folders in blogs.dir/files:</h3>";
+				// Recursively list all files and folders in the given directory
+				function utm_list_files_recursive($dir, $prefix = '') {
+					if (!is_dir($dir)) return '';
+					$output = '';
+					$items = array_diff(scandir($dir), array('.', '..'));
+					foreach ($items as $item) {
+						$path = $dir . DIRECTORY_SEPARATOR . $item;
+						// if path is empty, delete the folder
+						if (is_dir($path)) {
+							// If it's a directory, check if it is empty
+							if (count(scandir($path)) <= 2) {
+								rrmdir($path); // Remove empty directory
+								continue; // Skip to next item
+							}
+						}
+						$is_dir = is_dir($path);
+						$output .= htmlspecialchars($prefix . $item . ($is_dir ? '/' : '')) . "<br>";
+						if ($is_dir) {
+							$output .= utm_list_files_recursive($path, $prefix . $item . '/');
+						}
+					}
+					return $output;
+				}
+				echo "<div style='background: white; padding: 10px; border: 1px solid #ddd; max-height: 300px; overflow-y: auto; font-family: monospace;'>";
+				echo utm_list_files_recursive($files_dir);
+				echo "</div>";
+			}
+		}
+
 		if ($file_count > 0) {
-			echo "⚠️ <strong>Blogs.dir contains $file_count items</strong> - migration needed<br>";
+			echo "⚠️ <strong>Blogs.dir/$site_id contains $file_count items</strong> - migration needed<br>";
 			echo "<h3>Files and folders in blogs.dir:</h3>";
 			echo "<pre style='background: white; padding: 10px; border: 1px solid #ddd; max-height: 200px; overflow-y: auto;'>" . print_r($files_in_blogsdir, true) . "</pre>";
 		} else {
-			echo "✅ <strong>Blogs.dir is empty</strong> - ready for cleanup<br>";
+			echo "✅ <strong>Blogs.dir/$site_id is empty</strong> - ready for cleanup<br>";
 		}
 	} else {
 		echo "✅ <strong>Blogs.dir not found</strong> - migration already completed<br>";
@@ -383,28 +360,45 @@ function utm_fixuploadpath(){
 		echo "<p>Use the 'Move files from blogs.dir' action above to migrate files first.</p>";
 	}
 
-	/**
-	 * Recursively remove a directory and its contents.
-	 * @param string $dir
-	 * @return bool
+	/*
+	 * File Migration
+	 * Move files from blogs.dir to uploads/sites
 	 */
-	function rrmdir($dir) {
-		if (!is_dir($dir)) {
-			return false;
+	if (isset($_GET['file_migration']) && $_GET['file_migration'] == 1){
+		if ($site_id == 1){
+			echo "<br>This is the main site. No further action needed";
+			return;
 		}
-		$objects = scandir($dir);
-		foreach ($objects as $object) {
-			if ($object != "." && $object != "..") {
-				$path = $dir . DIRECTORY_SEPARATOR . $object;
-				if (is_dir($path)) {
-					rrmdir($path);
-				} else {
-					unlink($path);
-				}
-			}
+		if ($site_id != 1 && $site_id != 0 && $site_id != ""){
+			echo "<br>This is the subsite. Attempting to move files to correct location";
 		}
-		return rmdir($dir);
+		echo "<br>Blogs.dir path: " . $blogsdir_path;
+		echo "<br>Upload dir path: " . $uploaddir_path . "<br>";
+		
+		// FIXED: Move contents of files folder, not the files folder itself
+		migrate_files_contents($blogsdir_path, $uploaddir_path, !empty($_GET['dry_run']));
+		return;
 	}
+
+	// ================== STEP 2: Database Analysis ========================
+
+	echo "<h2>Database Analysis</h2>";
+	
+	// Check if ms-files is still enabled
+	echo "<h4>🔧 ms-files.php Status Check:</h4>";
+	echo "<div style='background: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007cba;'>";
+	$ms_files_rewriting = $wpdb->get_var("SELECT meta_value FROM $sitemeta_table WHERE meta_key = 'ms_files_rewriting'");
+	echo "<strong>ms_files_rewriting setting:</strong> " . ($ms_files_rewriting ? $ms_files_rewriting : 'not set') . "<br>";
+	
+	if ($ms_files_rewriting == '1') {
+		echo "⚠️ <strong>ms-files.php is ENABLED</strong> - this is why files are being served from /files/ URLs<br>";
+		echo "👆 Use the 'Set ms-files to 0' link above to disable it<br>";
+	} else {
+		echo "✅ ms-files.php is disabled<br>";
+	}
+	echo "</div>";
+	echo "<br>";
+
 	// Check if nonce is set and valid
 	// Only check nonce for operations that modify data
 	$requires_nonce = isset($_GET['search']) || isset($_GET['delete_option']) || 
@@ -457,49 +451,6 @@ function utm_fixuploadpath(){
 	}
 
 	/*
-	 * Fix Upload Directory
-	 * Force WordPress to use correct upload directory structure
-	 */
-	if (isset($_GET['fix_upload_dir']) && !$nonce_failed){
-		echo "<div style='border: 2px solid #28a745; padding: 15px; margin: 10px 0; background: #f8fff8;'>";
-		echo "<h2>🔧 Fixing Upload Directory Configuration</h2>";
-		echo "<strong>Debug: Starting upload directory fix process</strong><br>";
-		echo "<strong>Site ID:</strong> $site_id<br>";
-		utm_fix_upload_directory($site_id);
-		echo "</div>";
-	} elseif (isset($_GET['fix_upload_dir']) && $nonce_failed) {
-		echo '<div class="notice notice-error"><p><strong>Upload directory fix blocked due to security check failure.</strong> Please use the fix links provided above.</p></div>';
-	}
-
-	/*
-	 * File Migration
-	 * Move files from blogs.dir to uploads/sites
-	 */
-	if (isset($_GET['file_migration']) && $_GET['file_migration'] == 1){
-		if ($site_id == 1){
-			echo "<br>This is the main site. No further action needed";
-			return;
-		}
-		if ($site_id != 1 && $site_id != 0 && $site_id != ""){
-			echo "<br>This is the subsite. Attempting to move files to correct location";
-		}
-		echo "<br>Blogs.dir path: " . $blogsdir_path;
-		echo "<br>Upload dir path: " . $uploaddir_path . "<br>";
-		
-		// FIXED: Move contents of files folder, not the files folder itself
-		migrate_files_contents($blogsdir_path, $uploaddir_path, !empty($_GET['dry_run']));
-		return;
-	}
-	/*
-	 * Delete option from option table
-	 *
-	 */
-	if (isset($delete_option) && $delete_option != '' && !$nonce_failed) {
-		$wpdb->delete($option_table, array('option_name' => $delete_option));
-		echo "Deleted option: " . $delete_option . "<br>";
-	}
-
-	/*
 	 * Migrate files path in database
 	 * Specifically handle /files/ paths that need to be updated
 	 */
@@ -513,7 +464,9 @@ function utm_fixuploadpath(){
 		echo "</div>";
 	} elseif (isset($_GET['migrate_files_db']) && $nonce_failed) {
 		echo '<div class="notice notice-error"><p><strong>Migration blocked due to security check failure.</strong> Please use the migration links provided above.</p></div>';
-	}	/*
+	}
+
+	/*
 	 * Fix attachment file paths
 	 * Fix _wp_attached_file metadata to ensure correct file paths
 	 */
@@ -531,63 +484,6 @@ function utm_fixuploadpath(){
 		utm_regenerate_attachment_metadata($site_id, !empty($_GET['dry_run']));
 	} elseif (isset($_GET['regenerate_metadata']) && $nonce_failed) {
 		echo '<div class="notice notice-error"><p><strong>Metadata regeneration blocked due to security check failure.</strong> Please use the regenerate links provided above.</p></div>';
-	}
-
-	/*
-	 * Delete all authors
-	 *
-	 */
-	// delete all authors from this site
-	if (isset($_GET['delete_authors'])) {
-		echo "Delete authors from site<br>";
-		$users = get_users(array('blog_id' => $site_id));
-		foreach ($users as $user) {
-			// get user role
-			$user_role = $user->roles[0];
-
-			// if user role is authors
-			if ($user_role == 'author') {
-				// remove user from site
-				remove_user_from_blog($user->ID, $site_id);
-				echo $user->user_login . " removed from site<br>";
-			}
-		}
-		echo "<div class='notice notice-warning is-dismissible'><p>Table Prefix:{$wpdb->prefix}users</p><p>UTM Webmaster Tool: <strong>Deleted</strong> all authors from <strong>users table</strong></p></div>";
-	}
-
-
-	/*
-	 * Old codes
-	 *
-	 */
-	// delete utmlogin_updater from cron option value
-	$utmlogin_update = false;
-	if ($utmlogin_update) {
-		// get cron option value
-		$cron_option = $wpdb->get_var("SELECT option_value FROM $option_table WHERE option_name = 'cron'");
-
-		// Check if the value is serialized before attempting to unserialize
-		if (is_serialized($cron_option)) {
-			// unserialize cron option value
-			$cron_option = maybe_unserialize($cron_option);
-
-			// Check if unserialization was successful
-			if (is_array($cron_option)) {
-				// remove utmlogin_updater from cron option value
-				$cron_option = array_diff($cron_option, array('utmlogin_updater'));
-
-				// encode cron option value
-				$cron_option = json_encode($cron_option);
-
-				// update cron option value
-				$update_cron_success = $wpdb->update($option_table, array('option_value' => $cron_option), array('option_name' => 'cron'));
-				if ($update_cron_success) echo "<div class='notice notice-warning is-dismissible'><p>Table Prefix: {$wpdb->prefix}options</p><p>UTM Webmaster Tool: <strong>Deleted</strong> option value <strong>utmlogin_updater</strong> from <strong>option table</strong></p></div>";
-			} else {
-				echo "Failed to unserialize the 'cron' option.";
-			}
-		} else {
-			echo "'cron' option is not serialized or the value is empty.";
-		}
 	}
 
 	// Display the output
@@ -615,10 +511,52 @@ function utm_fixuploadpath(){
 	echo "  - Post content: $remaining_content<br>";
 	echo "  - Postmeta: $remaining_postmeta<br>";
 	echo "  - Options: $remaining_options<br>";
-	
+
 	$total_remaining = $remaining_attachments + $remaining_content + $remaining_postmeta + $remaining_options;
 	echo "<strong>Total remaining:</strong> $total_remaining " . ($total_remaining == 0 ? '✅' : '⚠️') . "<br>";
-	
+
+	// // List remaining problematic records
+	// if ($remaining_attachments > 0) {
+	// 	echo "<br><strong>Remaining attachments with /files/:</strong><br>";
+	// 	$attachments = $wpdb->get_results($wpdb->prepare(
+	// 		"SELECT ID, guid FROM $posts_table WHERE post_type = 'attachment' AND (guid LIKE %s OR guid LIKE %s)",
+	// 		'%/files/%', '%blogs.dir%'
+	// 	));
+	// 	foreach ($attachments as $attachment) {
+	// 		echo "  - <a href='" . esc_url(get_edit_post_link($attachment->ID)) . "'>" . esc_html($attachment->guid) . "</a><br>";
+	// 	}
+	// }
+	// if ($remaining_content > 0) {
+	// 	echo "<br><strong>Remaining posts with /files/ in content:</strong><br>";
+	// 	$posts_with_content = $wpdb->get_results($wpdb->prepare(
+	// 		"SELECT ID, post_title FROM $posts_table WHERE post_content LIKE %s OR post_content LIKE %s",
+	// 		'%/files/%', '%blogs.dir%'
+	// 	));
+	// 	foreach ($posts_with_content as $post) {
+	// 		echo "  - <a href='" . esc_url(get_edit_post_link($post->ID)) . "'>" . esc_html($post->post_title) . "</a><br>";
+	// 	}
+	// }
+	// if ($remaining_postmeta > 0) {
+	// 	echo "<br><strong>Remaining postmeta with /files/:</strong><br>";
+	// 	$postmeta_with_files = $wpdb->get_results($wpdb->prepare(
+	// 		"SELECT post_id, meta_key, meta_value FROM $postmeta_table WHERE meta_value LIKE %s OR meta_value LIKE %s",
+	// 		'%/files/%', '%blogs.dir%'
+	// 	));
+	// 	foreach ($postmeta_with_files as $meta) {
+	// 		echo "  - Post ID {$meta->post_id}: <strong>{$meta->meta_key}</strong> = " . esc_html($meta->meta_value) . "<br>";
+	// 	}
+	// }
+	// if ($remaining_options > 0) {
+	// 	echo "<br><strong>Remaining options with /files/:</strong><br>";
+	// 	$options_with_files = $wpdb->get_results($wpdb->prepare(
+	// 		"SELECT option_name, option_value FROM $option_table WHERE option_value LIKE %s OR option_value LIKE %s",
+	// 		'%/files/%', '%blogs.dir%'
+	// 	));
+	// 	foreach ($options_with_files as $option) {
+	// 		echo "  - <strong>{$option->option_name}</strong> = " . esc_html($option->option_value) . "<br>";
+	// 	}
+	// }
+
 	echo "<br><strong>🎯 Next Recommended Actions:</strong><br>";
 	if (strpos($final_upload_dir['basedir'], 'blogs.dir') !== false) {
 		echo "1. ⚠️ Use 'Force Fix Upload Directory' to resolve upload path<br>";
@@ -669,15 +607,31 @@ function migrate_files_contents($source, $destination, $dry_run = false) {
                 echo "<div class='notice notice-info'><p>Created directory: $dest_path</p></div>";
             }
         } else {
-            if (!$dry_run) {
-                copy($item, $dest_path);
-            }
-            echo "<div class='notice notice-success'><p>Copied file: $item to $dest_path</p></div>";
+			if ($dry_run) {
+				// In dry run, actually copy the file (leave original in place)
+				if (@copy($item, $dest_path)) {
+					echo "<div class='notice notice-info'><p>[Dry Run] Copied file: $item to $dest_path (original left in place)</p></div>";
+				} else {
+					echo "<div class='notice notice-error'><p>[Dry Run] Failed to copy file: $item to $dest_path</p></div>";
+				}
+			} else {
+				// In real run, move the file (leave empty folders on origin)
+				if (@rename($item, $dest_path)) {
+					echo "<div class='notice notice-success'><p>Moved file: $item to $dest_path</p></div>";
+				} else {
+					echo "<div class='notice notice-error'><p>Failed to move file: $item to $dest_path</p></div>";
+				}
+			}
         }
     }
+	// Check if the source directory is empty
+	if (is_dir($source) && count(scandir($source)) == 2) {
+		rmdir($source);
+		echo "<div class='notice notice-info'><p>Removed empty directory: $source</p></div>";
+	}
 }
 
-function utm_migrate_files_database_paths($site_id, $dry_run = false) {
+function utm_migrate_files_database_paths($site_id, $dry_run = true) {
     global $wpdb;
     switch_to_blog($site_id);
 
@@ -687,52 +641,58 @@ function utm_migrate_files_database_paths($site_id, $dry_run = false) {
         $wpdb->prefix . 'options',
     );
 
-    $search_string = '/blogs.dir/' . $site_id . '/files/';
-    $upload_dir = wp_upload_dir();
-    $replace_string = str_replace(ABSPATH, get_home_url(1) . '/', $upload_dir['basedir']) . '/';
+    $site_slug = get_blog_details($site_id)->path;
 
+    // Use the full legacy path for search, and the new path for replace
+    $search_string = '/files/';
+    $upload_dir = wp_upload_dir();
+    $replace_string = $upload_dir . '/';
 
     foreach ($tables_to_search as $table) {
-        $primary_key = $wpdb->get_var("SHOW KEYS FROM $table WHERE Key_name = 'PRIMARY'");
+        // Get the primary key column name
+        $primary_key = $wpdb->get_var("SHOW KEYS FROM $table WHERE Key_name = 'PRIMARY'", 4); // 5th column is Column_name
         $columns = $wpdb->get_col("DESC $table");
 
         foreach ($columns as $column) {
-			$results = $wpdb->get_results("SELECT $primary_key, $column FROM $table WHERE $column LIKE '%$search_string%'");
+            $results = $wpdb->get_results($wpdb->prepare(
+                "SELECT `$primary_key`, `$column` FROM $table WHERE `$column` LIKE %s",
+                '%' . $wpdb->esc_like($search_string) . '%'
+            ));
 
-			// If no results found, skip to next table
-			if (empty($results)) {
-				echo "<div class='notice notice-info'><p>No matches found in $table.$column for search string '$search_string'</p></div>";
-				continue;
-			}
+            // If no results found, skip to next table
+            if (empty($results)) {
+                echo "<div class='notice notice-info'><p>No matches found in $table.$column for search string '$search_string'</p></div>";
+                continue;
+            }
 
             foreach ($results as $row) {
                 $old_value = $row->$column;
                 $new_value = str_replace($search_string, $replace_string, $old_value);
 
                 if ($dry_run) {
-                    echo "<div class='notice notice-info'><p>[Dry Run] Would update $table.$column for row $primary_key: $old_value -> $new_value</p></div>";
+                    echo "<div class='notice notice-info'><p>[Dry Run] Would update $table.$column for row {$row->$primary_key}: $old_value -> $new_value</p></div>";
                 } else {
-					if ($table === $wpdb->prefix . 'postmeta' || $table === $wpdb->prefix . 'options') {
-						$old_value = maybe_unserialize($row->$column);
-						if (is_string($old_value)) {
-							$new_value = str_replace($search_string, $replace_string, $old_value);
-						} else {
-							$new_value = $old_value; // or recursively replace in arrays
-						}
-						$new_value = maybe_serialize($new_value);
-					} else {
-						$old_value = $row->$column;
-						$new_value = str_replace($search_string, $replace_string, $old_value);
-					}
+                    if ($table === $wpdb->prefix . 'postmeta' || $table === $wpdb->prefix . 'options') {
+                        $old_value = maybe_unserialize($row->$column);
+                        if (is_string($old_value)) {
+                            $new_value = str_replace($search_string, $replace_string, $old_value);
+                        } else {
+                            $new_value = $old_value; // or recursively replace in arrays
+                        }
+                        $new_value = maybe_serialize($new_value);
+                    } else {
+                        $old_value = $row->$column;
+                        $new_value = str_replace($search_string, $replace_string, $old_value);
+                    }
                     if($wpdb->update(
                         $table,
                         array($column => $new_value),
                         array($primary_key => $row->$primary_key)
                     )) {
-                        echo "<div class='notice notice-success'><p>Updated $table.$column for row $primary_key</p></div>";
+                        echo "<div class='notice notice-success'><p>Updated $table.$column for row {$row->$primary_key}</p></div>";
                     } else {
-						echo "<div class='notice notice-error'><p>Error updating $table.$column for row $primary_key</p></div>";
-					}
+                        echo "<div class='notice notice-error'><p>Error updating $table.$column for row {$row->$primary_key}</p></div>";
+                    }
                 }
             }
         }
@@ -794,6 +754,7 @@ function utm_regenerate_attachment_metadata($site_id, $dry_run = false) {
 }
 
 // ✅ Generate migration status and sites table for the network dashboard
+// TODO: to compare directories before delete blogs.dir (ensure all files in blogs.dir has been migrated)
 function utm_generate_migration_status() {
 	$sites = get_sites(array('public' => 1, 'archived' => 0, 'deleted' => 0));
 	$total_sites = count($sites);
@@ -809,21 +770,42 @@ function utm_generate_migration_status() {
 		$uploads_path = ($site_id == 1)
 			? ABSPATH . "wp-content/uploads"
 			: ABSPATH . "wp-content/uploads/sites/{$site_id}";
+		// Check if /files in $upload_path
+		$uploads_path_files = $uploads_path . '/files';
+		if (is_dir($uploads_path_files)){
+			// Delete this path
+			if (is_writable($uploads_path_files)) {
+				if(rrmdir($uploads_path_files)) {
+					$uploads_path_files = '✅  Deleted';
+				} else {
+					// If not deleted, show warning
+					$uploads_path_files = '⚠️  Could not delete';
+				}
+			} else {
+				$uploads_path_files = '⚠️  Not writable';
+			}
+		} else {
+			$uploads_path_files = '✅';
+		}
 		if (!is_dir($blogsdir_path) || (is_dir($blogsdir_path) && count(scandir($blogsdir_path)) <= 2)) {
 			$status = 'Completed';
 			$completed++;
 			$action = '<span style="color:green;">Done</span>';
 		} else {
 			// Button for file migration
-			$action = '<a href="?page=fix-media&file_migration=1&site_id=' . $site_id . '&utm_nonce=' . wp_create_nonce('utm_fixuploadpath') . '" class="button button-primary">Migrate Site</a>';
+			// $action = '<a href="?page=fix-media&file_migration=1&site_id=' . $site_id . '&utm_nonce=' . wp_create_nonce('utm_fixuploadpath') . '&dry_run=1" class="button button-primary">Copy Files</a>';
+			$action .= ' <a href="?page=fix-media&file_migration=1&site_id=' . $site_id . '&utm_nonce=' . wp_create_nonce('utm_fixuploadpath') . '" class="button button-primary">Move Files</a>';
 			// Button for database migration
-			$action .= ' <a href="?page=fix-media&migrate_files_db=1&site_id=' . $site_id . '&utm_nonce=' . wp_create_nonce('utm_fixuploadpath') . '&dry_run=1" class="button button-secondary">Migrate DB Paths</a>';
+			$action .= ' <a href="?page=fix-media&migrate_files_db=1&site_id=' . $site_id . '&utm_nonce=' . wp_create_nonce('utm_fixuploadpath') . '" class="button button-secondary">Migrate DB Paths</a>';
 		}
 		// Make site name clickable (link to site admin dashboard)
 		$site_url = esc_url(get_admin_url($site_id));
 		$site_link = '<a href="' . $site_url . '" target="_blank" style="text-decoration:underline;">' . $site_name . '</a>';
 		$rows .= '<tr>'
-			. '<td style="padding:8px;border:1px solid #ccc;">' . $site_id . ' - ' . $site_link . '<br>Old Path: ' . $blogsdir_path . '<br>New Path: ' . $uploads_path . '</td>'
+			. '<td style="padding:8px;border:1px solid #ccc;">' . $site_id . ' - ' . $site_link
+			. '<br>Files Exists: ' . $uploads_path_files
+			. '<br>Old Path: ' . $blogsdir_path
+			. '<br>New Path: ' . $uploads_path . '</td>'
 			. '<td style="padding:8px;border:1px solid #ccc;">' . $status . '</td>'
 			. '<td style="padding:8px;border:1px solid #ccc;">' . $action . '</td>'
 			. '</tr>';
@@ -840,382 +822,43 @@ function utm_generate_migration_status() {
 	);
 }
 
-// ✅ COMPLETED: Get correct URL for a file based on site ID and modern structure
-function utm_get_correct_url($old_url, $site_id) {
-	// Extract the file path from the old URL
-	$parsed_url = parse_url($old_url);
-	$path = $parsed_url['path'] ?? '';
-	
-	// Extract domain info for the base URL
-	$home_url = get_home_url($site_id);
-	$base_url = rtrim($home_url, '/');
-	
-	// Handle different old path patterns
-	if (strpos($path, '/files/') !== false) {
-		// Extract everything after /files/
-		$file_path = substr($path, strpos($path, '/files/') + 7);
-	} elseif (strpos($path, '/blogs.dir/') !== false) {
-		// Extract everything after the site ID in blogs.dir structure
-		$pattern = '/\/blogs\.dir\/\d+\/files\/(.+)/';
-		if (preg_match($pattern, $path, $matches)) {
-			$file_path = $matches[1];
-		} else {
-			// Fallback: take everything after blogs.dir/SITEID/files/
-			$parts = explode('/blogs.dir/', $path);
-			if (count($parts) > 1) {
-				$after_blogsdir = $parts[1];
-				$parts2 = explode('/files/', $after_blogsdir);
-				if (count($parts2) > 1) {
-					$file_path = $parts2[1];
-				}
-			}
-		}
-	} else {
-		// If no recognizable pattern, return original URL
-		return $old_url;
+// Compare two directories by their contents (files and folders by name)
+function compare_directories($dirA, $dirB) {
+	if (!is_dir($dirA) || !is_dir($dirB)) {
+		return false;
 	}
-	
-	// Build the correct URL
-	if ($site_id == 1) {
-		// Main site: https://domain.com/wp-content/uploads/2023/08/file.png
-		return $base_url . '/wp-content/uploads/' . $file_path;
-	} else {
-		// Subsite: https://domain.com/wp-content/uploads/sites/2508/2023/08/file.png
-		return $base_url . '/wp-content/uploads/sites/' . $site_id . '/' . $file_path;
-	}
-}
-
-// ✅ COMPLETED: Comprehensive upload directory diagnostic and fix function
-function utm_fix_upload_directory($site_id) {
-	global $wpdb;
-	$option_table = $wpdb->prefix . 'options';
-	// FIXED: Always use network-wide sitemeta table for multisite
-	$sitemeta_table = $wpdb->base_prefix . 'sitemeta';
-	
-	echo "Site ID: $site_id<br><br>";
-	
-	// 0. Deep diagnostic of upload directory filters
-	echo "<h3>0. Deep Upload Directory Diagnostic</h3>";
-	echo "<div style='background: #fff3cd; padding: 10px; margin: 5px 0; border-left: 4px solid #ffc107;>";
-	
-	// Check for active plugins that might affect uploads
-	echo "<strong>🔍 Active Plugins Analysis:</strong><br>";
-	$active_plugins = get_option('active_plugins', array());
-	$suspect_plugins = array();
-	foreach ($active_plugins as $plugin) {
-		if (stripos($plugin, 'upload') !== false || 
-			stripos($plugin, 'media') !== false || 
-			stripos($plugin, 'file') !== false ||
-			stripos($plugin, 'multisite') !== false ||
-			stripos($plugin, 'network') !== false) {
-			$suspect_plugins[] = $plugin;
-		}
-	}
-	
-	if (!empty($suspect_plugins)) {
-		echo "⚠️ <strong>Potential problematic plugins:</strong><br>";
-		foreach ($suspect_plugins as $plugin) {
-			echo "  - " . htmlspecialchars($plugin) . "<br>";
-		}
-	} else {
-		echo "✅ No obviously problematic plugins detected<br>";
-	}
-	
-	// Check current theme
-	$current_theme = wp_get_theme();
-	echo "<strong>Current theme:</strong> " . htmlspecialchars($current_theme->get('Name')) . " v" . htmlspecialchars($current_theme->get('Version')) . "<br>";
-	
-	// Check for upload_dir filters
-	echo "<strong>🔍 Upload Directory Filter Analysis:</strong><br>";
-	global $wp_filter;
-	if (isset($wp_filter['upload_dir'])) {
-		echo "⚠️ <strong>upload_dir filters detected:</strong><br>";
-		foreach ($wp_filter['upload_dir']->callbacks as $priority => $callbacks) {
-			foreach ($callbacks as $callback) {
-				$callback_name = 'Unknown';
-				if (is_array($callback['function'])) {
-					if (is_object($callback['function'][0])) {
-						$callback_name = get_class($callback['function'][0]) . '::' . $callback['function'][1];
-					} else {
-						$callback_name = $callback['function'][0] . '::' . $callback['function'][1];
-					}
-				} elseif (is_string($callback['function'])) {
-					$callback_name = $callback['function'];
-				}
-				echo "  Priority $priority: " . htmlspecialchars($callback_name) . "<br>";
-			}
-		}
-	} else {
-		echo "✅ No upload_dir filters detected<br>";
-	}
-	
-	// Test upload directory with filters temporarily removed
-	echo "<strong>🧪 Testing upload directory without filters:</strong><br>";
-	
-	// Remove all upload_dir filters temporarily
-	$original_filters = array();
-	if (isset($wp_filter['upload_dir'])) {
-		$original_filters = $wp_filter['upload_dir']->callbacks;
-		$wp_filter['upload_dir']->callbacks = array();
-	}
-	
-	// Get upload dir without filters
-	$clean_upload_dir = wp_upload_dir();
-	echo "Without filters: " . htmlspecialchars($clean_upload_dir['basedir']) . "<br>";
-	
-	// Restore filters
-	if (!empty($original_filters)) {
-		$wp_filter['upload_dir']->callbacks = $original_filters;
-	}
-	
-	// Compare
-	$normal_upload_dir = wp_upload_dir();
-	echo "With filters: " . htmlspecialchars($normal_upload_dir['basedir']) . "<br>";
-	
-	if ($clean_upload_dir['basedir'] !== $normal_upload_dir['basedir']) {
-		echo "🎯 <strong>FOUND THE PROBLEM!</strong> Filters are changing the upload directory!<br>";
-	} else {
-		echo "ℹ️ Filters are not the cause. Issue may be at WordPress core level or server configuration.<br>";
-	}
-	
-	// Deep dive into the upload directory calculation
-	echo "<strong>🔍 Deep Upload Directory Analysis:</strong><br>";
-	
-	// Test the core WordPress upload_dir function step by step
-	$site_id = get_current_blog_id();
-	echo "Current site ID: " . $site_id . "<br>";
-	
-	// Check if we're in multisite
-	if (is_multisite()) {
-		echo "✅ Multisite detected<br>";
-		
-		// Check what get_site_option returns for ms_files_rewriting
-		$ms_files_rewriting = get_site_option('ms_files_rewriting');
-		echo "ms_files_rewriting option: " . ($ms_files_rewriting ? '1 (enabled)' : '0 (disabled)') . "<br>";
-		
-		// Check individual site upload path options
-		$upload_path = get_option('upload_path');
-		$upload_url_path = get_option('upload_url_path');
-		echo "Site upload_path option: " . ($upload_path ? htmlspecialchars($upload_path) : 'empty/false') . "<br>";
-		echo "Site upload_url_path option: " . ($upload_url_path ? htmlspecialchars($upload_url_path) : 'empty/false') . "<br>";
-		
-		// Manually calculate what the upload directory should be
-		$expected_upload_dir = WP_CONTENT_DIR . '/uploads';
-		if ($site_id > 1) {
-			$expected_upload_dir .= '/sites/' . $site_id;
-		}
-		echo "Expected upload directory: " . htmlspecialchars($expected_upload_dir) . "<br>";
-		
-		// Check if directory exists
-		echo "Expected directory exists: " . (is_dir($expected_upload_dir) ? '✅ Yes' : '❌ No') . "<br>";
-		
-		// Test the upload_dir function with minimal context
-		echo "<strong>🧪 Step-by-step upload_dir calculation:</strong><br>";
-		
-		// Step 1: Check constants
-		if (defined('UPLOADS')) {
-			echo "Step 1: UPLOADS constant is set to: " . UPLOADS . " (THIS IS THE PROBLEM!)<br>";
-		} else {
-			echo "Step 1: ✅ No UPLOADS constant<br>";
-		}
-		
-		// Step 2: Check if ms-files is the issue
-		if ($ms_files_rewriting) {
-			echo "Step 2: ⚠️ ms_files_rewriting is enabled - this forces old structure<br>";
-		} else {
-			echo "Step 2: ✅ ms_files_rewriting is disabled<br>";
-		}
-		
-		// Step 3: Check for upload_path option
-		if (!empty($upload_path)) {
-			echo "Step 3: ⚠️ upload_path option is set: " . htmlspecialchars($upload_path) . "<br>";
-		} else {
-			echo "Step 3: ✅ upload_path option is empty<br>";
-		}
-		
-	} else {
-		echo "❌ Not in multisite mode<br>";
-	}
-	
-	// Check wp-config.php related issues
-	echo "<strong>🔍 WordPress Constants Check:</strong><br>";
-	echo "WP_CONTENT_DIR: " . (defined('WP_CONTENT_DIR') ? WP_CONTENT_DIR : 'Not defined') . "<br>";
-	echo "WP_CONTENT_URL: " . (defined('WP_CONTENT_URL') ? WP_CONTENT_URL : 'Not defined') . "<br>";
-	echo "UPLOADS: " . (defined('UPLOADS') ? UPLOADS : 'Not defined') . "<br>";
-	echo "UPLOADBLOGSDIR: " . (defined('UPLOADBLOGSDIR') ? UPLOADBLOGSDIR : 'Not defined') . "<br>";
-	
-	// If UPLOADS is defined, try to trace where it came from
-	if (defined('UPLOADS')) {
-		echo "<br><strong>🔍 UPLOADS Constant Investigation:</strong><br>";
-		echo "⚠️ <strong>CRITICAL FINDING:</strong> UPLOADS constant is set to: " . UPLOADS . "<br>";
-		echo "<br><strong>Common sources of UPLOADS constant:</strong><br>";
-		echo "1. <strong>wp-config.php</strong> - You've checked this ✅<br>";
-		echo "2. <strong>Network wp-config.php</strong> - Check if there's a network-wide config<br>";
-		echo "3. <strong>WordPress Core Bug</strong> - In multisite with ms_files_rewriting enabled<br>";
-		echo "4. <strong>Plugin/Theme</strong> - A plugin might be defining this dynamically<br>";
-		echo "5. <strong>Server Environment</strong> - Apache/Nginx configuration<br>";
-		echo "6. <strong>WordPress MU Legacy</strong> - Old WordPress MU installation remnants<br>";
-		
-		echo "<br><strong>🚨 IMMEDIATE SOLUTION:</strong><br>";
-		echo "Since you confirmed no UPLOADS constant in wp-config.php, this is likely being set by WordPress core due to the combination of:<br>";
-		echo "• Multisite installation<br>";
-		echo "• ms_files_rewriting = 1 (enabled)<br>";
-		echo "• Site ID > 1<br>";
-		echo "<br><strong>WordPress automatically sets UPLOADS constant in wp-includes/ms-default-constants.php when ms_files_rewriting is enabled!</strong><br>";
-		
-		echo "<br><strong>🔧 REQUIRED ACTION:</strong><br>";
-		echo "1. <strong>Disable ms_files_rewriting</strong> - This tool should do this automatically<br>";
-		echo "2. <strong>Force WordPress to recalculate paths</strong><br>";
-		echo "3. <strong>Clear any caches</strong><br>";
-	}
-	
-	echo "</div>";
-	
-	// ... rest of the function implementation would continue here
-	// For now, this provides the diagnostic output
+	$filesA = array_diff(scandir($dirA), array('.', '..'));
+	$filesB = array_diff(scandir($dirB), array('.', '..'));
+	sort($filesA);
+	sort($filesB);
+	return $filesA === $filesB;
 }
 
 /**
- * Analyze files paths in the database for migration issues
- * @param int $blog_id The blog ID to analyze
+ * Recursively remove a directory and its contents.
+ * @param string $dir
+ * @return bool
  */
-function utm_analyze_files_paths($blog_id) {
-    global $wpdb;
-    
-    // Switch to the specific blog context if in multisite
-    if (is_multisite() && $blog_id) {
-        switch_to_blog($blog_id);
-    }
-    
-    $posts_table = $wpdb->prefix . 'posts';
-    $postmeta_table = $wpdb->prefix . 'postmeta';
-    $options_table = $wpdb->prefix . 'options';
-    
-    echo "<div style='background: #f8f9fa; padding: 15px; margin: 10px 0; border-left: 4px solid #007cba;'>";
-    echo "<h4>🔍 Database Path Analysis for Site ID: $blog_id</h4>";
-    
-    // Analyze attachments with problematic GUIDs
-    echo "<strong>📎 Attachment Analysis:</strong><br>";
-    $attachment_queries = array(
-        'blogs.dir paths' => "SELECT COUNT(*) FROM $posts_table WHERE post_type = 'attachment' AND guid LIKE '%blogs.dir%'",
-        '/files/ paths' => "SELECT COUNT(*) FROM $posts_table WHERE post_type = 'attachment' AND guid LIKE '%/files/%'",
-        'total attachments' => "SELECT COUNT(*) FROM $posts_table WHERE post_type = 'attachment'"
-    );
-    
-    foreach ($attachment_queries as $label => $query) {
-        $count = $wpdb->get_var($query);
-        $icon = ($label === 'total attachments' || $count == 0) ? '✅' : '⚠️';
-        echo "$icon <strong>$label:</strong> $count<br>";
-    }
-    
-    // Sample problematic attachment GUIDs
-    $sample_guids = $wpdb->get_results(
-        "SELECT ID, guid FROM $posts_table 
-         WHERE post_type = 'attachment' 
-         AND (guid LIKE '%blogs.dir%' OR guid LIKE '%/files/%') 
-         LIMIT 5", 
-        ARRAY_A
-    );
-    
-    if (!empty($sample_guids)) {
-        echo "<strong>Sample problematic attachment GUIDs:</strong><br>";
-        echo "<div style='background: white; padding: 10px; margin: 5px 0; font-family: monospace; max-height: 150px; overflow-y: auto;'>";
-        foreach ($sample_guids as $attachment) {
-            echo "ID {$attachment['ID']}: " . esc_html($attachment['guid']) . "<br>";
-        }
-        echo "</div>";
-    }
-    
-    // Analyze post content with file references
-    echo "<br><strong>📄 Post Content Analysis:</strong><br>";
-    $content_queries = array(
-        'posts with blogs.dir' => "SELECT COUNT(*) FROM $posts_table WHERE post_content LIKE '%blogs.dir%'",
-        'posts with /files/' => "SELECT COUNT(*) FROM $posts_table WHERE post_content LIKE '%/files/%'",
-        'total posts with content' => "SELECT COUNT(*) FROM $posts_table WHERE post_content != ''"
-    );
-    
-    foreach ($content_queries as $label => $query) {
-        $count = $wpdb->get_var($query);
-        $icon = ($label === 'total posts with content' || $count == 0) ? '✅' : '⚠️';
-        echo "$icon <strong>$label:</strong> $count<br>";
-    }
-    
-    // Analyze postmeta for attachment metadata
-    echo "<br><strong>🏷️ Post Metadata Analysis:</strong><br>";
-    $postmeta_queries = array(
-        '_wp_attached_file with blogs.dir' => "SELECT COUNT(*) FROM $postmeta_table WHERE meta_key = '_wp_attached_file' AND meta_value LIKE '%blogs.dir%'",
-        '_wp_attached_file with /files/' => "SELECT COUNT(*) FROM $postmeta_table WHERE meta_key = '_wp_attached_file' AND meta_value LIKE '%/files/%'",
-        '_wp_attachment_metadata with issues' => "SELECT COUNT(*) FROM $postmeta_table WHERE meta_key = '_wp_attachment_metadata' AND (meta_value LIKE '%blogs.dir%' OR meta_value LIKE '%/files/%')",
-        'total _wp_attached_file entries' => "SELECT COUNT(*) FROM $postmeta_table WHERE meta_key = '_wp_attached_file'"
-    );
-    
-    foreach ($postmeta_queries as $label => $query) {
-        $count = $wpdb->get_var($query);
-        $icon = ($label === 'total _wp_attached_file entries' || $count == 0) ? '✅' : '⚠️';
-        echo "$icon <strong>$label:</strong> $count<br>";
-    }
-    
-    // Sample problematic _wp_attached_file entries
-    $sample_attached_files = $wpdb->get_results(
-        "SELECT post_id, meta_value FROM $postmeta_table 
-         WHERE meta_key = '_wp_attached_file' 
-         AND (meta_value LIKE '%blogs.dir%' OR meta_value LIKE '%/files/%') 
-         LIMIT 5", 
-        ARRAY_A
-    );
-    
-    if (!empty($sample_attached_files)) {
-        echo "<strong>Sample problematic _wp_attached_file entries:</strong><br>";
-        echo "<div style='background: white; padding: 10px; margin: 5px 0; font-family: monospace; max-height: 150px; overflow-y: auto;'>";
-        foreach ($sample_attached_files as $meta) {
-            echo "Post ID {$meta['post_id']}: " . esc_html($meta['meta_value']) . "<br>";
-        }
-        echo "</div>";
-    }
-    
-    // Analyze options table
-    echo "<br><strong>⚙️ Options Analysis:</strong><br>";
-    $options_queries = array(
-        'options with blogs.dir' => "SELECT COUNT(*) FROM $options_table WHERE option_value LIKE '%blogs.dir%'",
-        'options with /files/' => "SELECT COUNT(*) FROM $options_table WHERE option_value LIKE '%/files/%'",
-        'upload_path option' => "SELECT COUNT(*) FROM $options_table WHERE option_name = 'upload_path' AND option_value != ''",
-        'upload_url_path option' => "SELECT COUNT(*) FROM $options_table WHERE option_name = 'upload_url_path' AND option_value != ''"
-    );
-    
-    foreach ($options_queries as $label => $query) {
-        $count = $wpdb->get_var($query);
-        $icon = ($count == 0) ? '✅' : '⚠️';
-        echo "$icon <strong>$label:</strong> $count<br>";
-    }
-    
-    // Check current upload directory setting
-    echo "<br><strong>📁 Current Upload Directory Status:</strong><br>";
-    $upload_dir = wp_upload_dir();
-    $is_correct = !strpos($upload_dir['basedir'], 'blogs.dir');
-    $icon = $is_correct ? '✅' : '⚠️';
-    echo "$icon <strong>Upload directory:</strong> " . esc_html($upload_dir['basedir']) . "<br>";
-    echo "$icon <strong>Upload URL:</strong> " . esc_html($upload_dir['baseurl']) . "<br>";
-    
-    // Calculate migration readiness score
-    $total_issues = 0;
-    $total_issues += $wpdb->get_var("SELECT COUNT(*) FROM $posts_table WHERE post_type = 'attachment' AND (guid LIKE '%blogs.dir%' OR guid LIKE '%/files/%')");
-    $total_issues += $wpdb->get_var("SELECT COUNT(*) FROM $posts_table WHERE post_content LIKE '%blogs.dir%' OR post_content LIKE '%/files/%'");
-    $total_issues += $wpdb->get_var("SELECT COUNT(*) FROM $postmeta_table WHERE (meta_key = '_wp_attached_file' OR meta_key = '_wp_attachment_metadata') AND (meta_value LIKE '%blogs.dir%' OR meta_value LIKE '%/files/%')");
-    $total_issues += $wpdb->get_var("SELECT COUNT(*) FROM $options_table WHERE option_value LIKE '%blogs.dir%' OR option_value LIKE '%/files/%'");
-    
-    echo "<br><strong>📊 Migration Status Summary:</strong><br>";
-    if ($total_issues == 0 && $is_correct) {
-        echo "✅ <strong style='color: #155724;'>MIGRATION COMPLETE!</strong> No issues found.<br>";
-    } elseif ($total_issues == 0 && !$is_correct) {
-        echo "⚠️ <strong style='color: #856404;'>UPLOAD DIRECTORY NEEDS FIXING</strong> - No database issues but upload path is incorrect.<br>";
-    } else {
-        echo "⚠️ <strong style='color: #721c24;'>MIGRATION NEEDED</strong> - Found $total_issues database records that need updating.<br>";
-    }
-    
-    // Restore blog context if we switched
-    if (is_multisite() && $blog_id) {
-        restore_current_blog();
-    }
-    
-    echo "</div>";
+function rrmdir($dir) {
+	$baseDir = realpath($dir);
+	if ($baseDir === false || !is_dir($baseDir)) {
+		return false;
+	}
+	$objects = scandir($dir);
+	foreach ($objects as $object) {
+		if ($object != "." && $object != "..") {
+			$path = $baseDir . DIRECTORY_SEPARATOR . $object;
+			$realPath = realpath($path);
+			if ($realPath === false || strpos($realPath, $baseDir) !== 0) {
+				// Skip anything outside the base directory
+				continue;
+			}
+			if (is_link($realPath) || is_file($realPath)) {
+				unlink($realPath);
+			} elseif (is_dir($realPath)) {
+				rrmdir($realPath);
+			}
+		}
+	}
+	return rmdir($baseDir);
 }

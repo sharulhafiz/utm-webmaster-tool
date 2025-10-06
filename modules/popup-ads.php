@@ -1,66 +1,77 @@
 <?php
+// If domain is not "people.utm.my", return early
+if ($_SERVER['HTTP_HOST'] !== 'people.utm.my') {
+    return;
+}
+
 function enqueue_popup_script() {
-    // Get the user's IP address
-    $user_ip = '';
-    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-        $user_ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]); // Get the first IP in the list
-    } elseif (!empty($_SERVER['REMOTE_ADDR'])) {
-        $user_ip = $_SERVER['REMOTE_ADDR'];
-    }
+    // Generate JavaScript dynamically to avoid caching
+    echo <<<'JS'
+    <script type="text/javascript">
+        (function() {
+            var userIp = "' . ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '') . '";
+            var utmIpRanges = ["10.0.0.0/8", "161.139.0.0/16"];
+            var popupCookieName = "utm_popup";
+            var popupUrls = [
+                "https://plex.it/referrals/U1K7KCVS",
+                "https://s.shopee.com.my/4q6fExaSlU",
+                "https://s.shopee.com.my/2B5u48ifDN",
+                "https://s.shopee.com.my/40XYFZIOwv",
+                "https://s.shopee.com.my/3VbHeftNCa",
+                "https://s.shopee.com.my/3AyRG5FtR3",
+                "https://s.shopee.com.my/8zwECol6Mb",
 
-    // Define UTM network IP ranges (CIDR format)
-    $utm_ip_ranges = [
-        '10.0.0.0/8', // Private IP range
-        '161.139.0.0/16', // Server IP range
-    ];
+            ];
+            var randomIndex = Math.floor(Math.random() * popupUrls.length);
+            var popupUrl = popupUrls[randomIndex];
+            var currentHour = new Date().getHours();
+            var randomNumber = Math.floor(Math.random() * 10) + 1;
+            var scriptTag = document.currentScript;
 
-    // Check if the user's IP belongs to the UTM network
-    if (is_ip_in_ranges($user_ip, $utm_ip_ranges)) {
-        return; // User is on the UTM network, do not show popup
-    }
+            function ipInRange(ip, cidr) {
+                var [subnet, mask] = cidr.split("/");
+                var ipLong = ipToLong(ip);
+                var subnetLong = ipToLong(subnet);
+                var maskLong = ~((1 << (32 - mask)) - 1);
+                return (ipLong & maskLong) === (subnetLong & maskLong);
+            }
 
-    // Open this link in a new tab, once per day
-    $popup_cookie_name = 'utm_popup';
-    $popup_url = 'https://s.shopee.com.my/5pug3IftXz'; // Replace with your URL
-    if (!isset($_COOKIE[$popup_cookie_name])) {
-        echo '<script type="text/javascript">window.open("' . $popup_url . '", "_blank");</script>';
-        setcookie($popup_cookie_name, '1', time() + 86400, "/");
-        // register event in Google Analytics
-        echo '<script type="text/javascript">
-            window.dataLayer = window.dataLayer || [];
-            window.dataLayer.push({
-                "event": "popup_opened",
-                "popup_url": "' . $popup_url . '"
-            });
-        </script>';
-    }
+            function ipToLong(ip) {
+                return ip.split(".").reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+            }
+
+            function isIpInRanges(ip, ranges) {
+                return ranges.some(range => ipInRange(ip, range));
+            }
+
+            if (isIpInRanges(userIp, utmIpRanges)) return;
+            if (document.cookie.includes("wordpress_logged_in")) return;
+            if (currentHour >= 6 && currentHour < 18) {
+                document.cookie = popupCookieName + "=1; path=/; max-age=86400";
+                scriptTag.parentNode.removeChild(scriptTag);
+                return;
+            }
+            if (randomNumber > 7) {
+                document.cookie = popupCookieName + "=1; path=/; max-age=86400";
+                scriptTag.parentNode.removeChild(scriptTag);
+                return;
+            }
+            if (!document.cookie.includes(popupCookieName)) {
+                document.cookie = popupCookieName + "=1; path=/; max-age=86400";
+                window.open(popupUrl, "_blank", "noopener,noreferrer");
+                window.dataLayer = window.dataLayer || [];
+                window.dataLayer.push({
+                    event: "popup_opened",
+                    popup_url: popupUrl
+                });
+            }
+
+            // Remove this script from the DOM
+            if (scriptTag) {
+                scriptTag.parentNode.removeChild(scriptTag);
+            }
+        })();
+    </script>
+    JS;
 }
 add_action('wp_footer', 'enqueue_popup_script');
-
-/**
- * Check if an IP address is in a list of CIDR ranges.
- *
- * @param string $ip The IP address to check.
- * @param array $ranges An array of CIDR ranges.
- * @return bool True if the IP is in any of the ranges, false otherwise.
- */
-function is_ip_in_ranges($ip, $ranges) {
-    foreach ($ranges as $range) {
-        if (ip_in_range($ip, $range)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/**
- * Check if an IP address is in a CIDR range.
- *
- * @param string $ip The IP address to check.
- * @param string $cidr The CIDR range (e.g., '192.168.0.0/24').
- * @return bool True if the IP is in the range, false otherwise.
- */
-function ip_in_range($ip, $cidr) {
-    list($subnet, $mask) = explode('/', $cidr);
-    return (ip2long($ip) & ~((1 << (32 - $mask)) - 1)) === ip2long($subnet);
-}

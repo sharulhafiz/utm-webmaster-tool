@@ -6,48 +6,81 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
-Version: 5.31
+Version: 5.37
 */
-define('utm_plugin_version', '5.31');
-define('utm_network_site_url', get_site_url());
 
-$modules_dir = plugin_dir_path(__FILE__) . 'modules/';
-$files_to_remove = ['smtp.php','fixuploadpath-copy.php','generate_ics.php','visitor_manager.php','notes.txt','deletecomments.php','allinonemigration.php','update.php','nlp-to-ics.php'];
-$folders_to_remove = ['comment_anti_spam'];
-
-// remove folder in $folders_to_remove
-foreach ($folders_to_remove as $folder) {
-	if (is_dir($modules_dir . $folder)) {
-		// remove all files in the folder, including hidden files
-		$files = glob($modules_dir . $folder . '/{,.}*', GLOB_BRACE);
-		foreach ($files as $file) {
-			if (is_file($file)) {
-				unlink($file);
-			}
-		}
-		// remove the folder
-		rmdir($modules_dir . $folder);
-	}
+// Exit if accessed directly for security.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
 }
 
-// remove file in $files_to_remove
-foreach ($files_to_remove as $file) {
-	if (file_exists($modules_dir . $file)) {
-		unlink($modules_dir . $file);
-	}
+// Define basic constants. These are fine as they are static.
+define( 'UTM_PLUGIN_VERSION', '5.37' );
+define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
+define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+
+/**
+ * Function to run tasks ONLY ONCE upon plugin activation.
+ * This is the correct place for cleanup and setup.
+ */
+function utm_plugin_activation_hook() {
+    $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
+    
+    // --- Self-cleanup logic moved here ---
+    $files_to_remove = ['smtp.php','fixuploadpath-copy.php','generate_ics.php','visitor_manager.php','notes.txt','deletecomments.php','allinonemigration.php','update.php','nlp-to-ics.php'];
+    $folders_to_remove = ['comment_anti_spam'];
+
+    // Remove obsolete folders
+    foreach ( $folders_to_remove as $folder ) {
+        $folder_path = $modules_dir . $folder;
+        if ( is_dir( $folder_path ) ) {
+            $files = glob( $folder_path . '/{,.}*', GLOB_BRACE );
+            foreach ( $files as $file ) {
+                if ( is_file( $file ) ) {
+                    unlink( $file );
+                }
+            }
+            rmdir( $folder_path );
+        }
+    }
+
+    // Remove obsolete files
+    foreach ( $files_to_remove as $file ) {
+        if ( file_exists( $modules_dir . $file ) ) {
+            unlink( $modules_dir . $file );
+        }
+    }
 }
+// Register the activation hook.
+register_activation_hook( __FILE__, 'utm_plugin_activation_hook' );
 
-foreach (glob($modules_dir . '*.php') as $file) {
-    include_once($file);
+
+/**
+ * Load all plugin modules.
+ * For better performance, avoid glob() and list files explicitly.
+ */
+function utm_load_modules() {
+    $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
+    $modules = array('analytics', 'antispam', 'backup', 'brokenlink', 'bulk-add-user', 'bulkdeleteuser', 'cache-monitor', 'chatbot', 'content-visibility-shortcodes', 'delete_et_cache_divi', 'disableplugin', 'events', 'fixuploadpath', 'fixuserrole', 'formidableforms', 'googleanalytics', 'heartbeat', 'listblogs', 'loginlogger', 'mail', 'migrate-upload', 'multisite-api', 'multisite-statistics', 'news.utm.my', 'people.utm.my', 'performance-patch', 'popup-ads', 'postExport', 'protected-content', 'registrar', 'seo', 'shortcodes', 'sso', 'staffapi', 'support.utm.my', 'timezone', 'updatenetworkadminemail', 'usermeta', 'utmlenses', 'utm-news-import');
+
+    // This is still using glob(), but a better long-term solution is a static array.
+    // However, moving it into a function is already an improvement.
+    foreach ( $modules as $module ) {
+        $file = $modules_dir . $module . '.php';
+        if ( file_exists( $file ) ) {
+            require_once $file;
+        }
+    }
+
+    // Now it's safe to load files that depend on WordPress core.
+    if ( ! class_exists( 'WP_List_Table' ) ) {
+        require_once( ABSPATH . 'wp-admin/includes/class-wp-list-table.php' );
+    }
+
+    // Define the dynamic site URL constant here, after WordPress has loaded.
+    if ( ! defined( 'UTM_NETWORK_SITE_URL' ) ) {
+        define( 'UTM_NETWORK_SITE_URL', get_site_url() );
+    }
 }
-
-if (!class_exists('WP_List_Table')) {
-	require_once(ABSPATH . 'wp-admin/includes/class-wp-list-table.php');
-}
-
-$url = plugin_dir_path(__FILE__);
-// if not defined, define it
-if (!defined("utm_webmaster_plugin_path")) define("utm_webmaster_plugin_path", plugin_dir_path(__FILE__));
-if (!defined("utm_webmaster_plugin_url")) define("utm_webmaster_plugin_url", WP_PLUGIN_URL . "/" . basename($url) . "/");
-
-
+// Use the 'plugins_loaded' hook to ensure all plugins are loaded before your modules.
+add_action( 'plugins_loaded', 'utm_load_modules' );

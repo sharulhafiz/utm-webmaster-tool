@@ -12,6 +12,10 @@ $allowed_websites = [
     'ppmu.utm.my' => [
         'url' => 'https://ppmu.utm.my',
         'chatbot_id' => 'ppmu-utm-my'
+    ],
+    'space.utm.my' => [
+        'url' => 'https://space.utm.my',
+        'chatbot_id' => 'space-utm-my'
     ]
 ];
 
@@ -481,3 +485,188 @@ add_action('admin_enqueue_scripts', function($hook) {
         wp_enqueue_style('utm-chatbot-style', UTM_CHATBOT_SERVER_URL . '/static/chatbot-widget.css', array(), UTM_CHATBOT_VERSION);
     }
 });
+
+// AUTO-CRAWLING HOOKS
+// Hook to recrawl content when a post/page is updated
+add_action('post_updated', 'utm_chatbot_on_post_updated', 10, 3);
+
+function utm_chatbot_on_post_updated($post_ID, $post_after, $post_before) {
+    // Only process if chatbot is active
+    if (get_option('utm_chatbot_active', '0') !== '1') {
+        return;
+    }
+    
+    // Only process supported post types
+    if (!in_array($post_after->post_type, array('page', 'post', 'project'))) {
+        return;
+    }
+    
+    // Only process if post is published
+    if ($post_after->post_status !== 'publish') {
+        return;
+    }
+    
+    // Check if the content actually changed
+    if ($post_before->post_content === $post_after->post_content && 
+        $post_before->post_title === $post_after->post_title) {
+        return;
+    }
+    
+    utm_chatbot_log('Post updated, triggering recrawl for post ID: ' . $post_ID);
+    utm_chatbot_recrawl_post($post_ID);
+}
+
+// Hook to crawl content when a post/page is published
+add_action('transition_post_status', 'utm_chatbot_on_post_published', 10, 3);
+
+function utm_chatbot_on_post_published($new_status, $old_status, $post) {
+    // Only process if chatbot is active
+    if (get_option('utm_chatbot_active', '0') !== '1') {
+        return;
+    }
+    
+    // Only process supported post types
+    if (!in_array($post->post_type, array('page', 'post', 'project'))) {
+        return;
+    }
+    
+    // Only trigger when transitioning to published status
+    if ($new_status !== 'publish' || $old_status === 'publish') {
+        return;
+    }
+    
+    utm_chatbot_log('Post published, triggering crawl for post ID: ' . $post->ID);
+    utm_chatbot_crawl_post($post->ID);
+}
+
+// Hook to delete content from crawl database when post/page is deleted
+add_action('before_delete_post', 'utm_chatbot_on_post_deleted');
+
+function utm_chatbot_on_post_deleted($post_ID) {
+    // Only process if chatbot is active
+    if (get_option('utm_chatbot_active', '0') !== '1') {
+        return;
+    }
+    
+    $post = get_post($post_ID);
+    if (!$post) {
+        return;
+    }
+    
+    // Only process supported post types
+    if (!in_array($post->post_type, array('page', 'post', 'project'))) {
+        return;
+    }
+    
+    utm_chatbot_log('Post deleted, removing from crawl database for post ID: ' . $post_ID);
+    utm_chatbot_delete_from_crawl_database($post_ID);
+}
+
+// Function to recrawl a specific post (resets crawl status and crawls again)
+function utm_chatbot_recrawl_post($post_ID) {
+    // Reset the crawl status
+    delete_post_meta($post_ID, '_utm_chatbot_crawled');
+    
+    // Get the post URL
+    $currentUrl = get_permalink($post_ID);
+    if (!$currentUrl) {
+        utm_chatbot_log('Failed to get permalink for post ID: ' . $post_ID);
+        return false;
+    }
+    
+    // Crawl the URL
+    $backendUrl = UTM_CHATBOT_SERVER_URL;
+    $chatbotId = str_replace(['https://', 'http://', '/', '.'], ['','', '-', '-'], site_url());
+    
+    utm_chatbot_log('Recrawling URL: ' . $currentUrl . ' (Post ID: ' . $post_ID . ')');
+    
+    $result = sendUrlForCrawling($backendUrl, $chatbotId, $currentUrl);
+    if ($result) {
+        update_post_meta($post_ID, '_utm_chatbot_crawled', '1');
+        utm_chatbot_log('Successfully recrawled URL: ' . $currentUrl);
+        return true;
+    } else {
+        update_post_meta($post_ID, '_utm_chatbot_crawled', '0');
+        utm_chatbot_log('Failed to recrawl URL: ' . $currentUrl);
+        return false;
+    }
+}
+
+// Function to crawl a newly published post
+function utm_chatbot_crawl_post($post_ID) {
+    // Get the post URL
+    $currentUrl = get_permalink($post_ID);
+    if (!$currentUrl) {
+        utm_chatbot_log('Failed to get permalink for post ID: ' . $post_ID);
+        return false;
+    }
+    
+    // Crawl the URL
+    $backendUrl = UTM_CHATBOT_SERVER_URL;
+    $chatbotId = str_replace(['https://', 'http://', '/', '.'], ['','', '-', '-'], site_url());
+    
+    utm_chatbot_log('Crawling new published URL: ' . $currentUrl . ' (Post ID: ' . $post_ID . ')');
+    
+    $result = sendUrlForCrawling($backendUrl, $chatbotId, $currentUrl);
+    if ($result) {
+        update_post_meta($post_ID, '_utm_chatbot_crawled', '1');
+        utm_chatbot_log('Successfully crawled new published URL: ' . $currentUrl);
+        return true;
+    } else {
+        update_post_meta($post_ID, '_utm_chatbot_crawled', '0');
+        utm_chatbot_log('Failed to crawl new published URL: ' . $currentUrl);
+        return false;
+    }
+}
+
+// Function to delete content from crawl database
+function utm_chatbot_delete_from_crawl_database($post_ID) {
+    // Get the post URL before it's deleted
+    $currentUrl = get_permalink($post_ID);
+    if (!$currentUrl) {
+        utm_chatbot_log('Failed to get permalink for deleted post ID: ' . $post_ID);
+        return false;
+    }
+    
+    $backendUrl = UTM_CHATBOT_SERVER_URL;
+    $chatbotId = str_replace(['https://', 'http://', '/', '.'], ['','', '-', '-'], site_url());
+    
+    $endpoint = rtrim($backendUrl, '/') . '/delete-url/' . $chatbotId;
+    
+    utm_chatbot_log('Sending delete request to endpoint: ' . $endpoint);
+    utm_chatbot_log('Deleting URL from crawl database: ' . $currentUrl);
+
+    $response = wp_remote_post($endpoint, array(
+        'method'      => 'POST',
+        'body'        => array('url' => $currentUrl),
+        'timeout'     => 15,
+        'headers'     => array('Content-Type' => 'application/x-www-form-urlencoded'),
+    ));
+
+    if (is_wp_error($response)) {
+        utm_chatbot_log('Failed to delete URL from crawl database: ' . $response->get_error_message());
+        return false;
+    }
+
+    $httpCode = wp_remote_retrieve_response_code($response);
+    $body = wp_remote_retrieve_body($response);
+    
+    utm_chatbot_log('Delete response HTTP code: ' . $httpCode);
+    utm_chatbot_log('Delete response body: ' . $body);
+
+    if ($httpCode < 200 || $httpCode >= 300) {
+        utm_chatbot_log('Failed to delete URL from crawl database: HTTP ' . $httpCode . ' - ' . $body);
+        return false;
+    }
+
+    $data = json_decode($body, true);
+    if (isset($data['message'])) {
+        utm_chatbot_log('Delete status: ' . $data['message']);
+    }
+    
+    // Clean up the post meta since the post is being deleted
+    delete_post_meta($post_ID, '_utm_chatbot_crawled');
+    
+    utm_chatbot_log('Successfully deleted URL from crawl database: ' . $currentUrl);
+    return true;
+}

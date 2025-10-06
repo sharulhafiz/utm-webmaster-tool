@@ -76,8 +76,8 @@ add_shortcode('utmwebmaster_checkuserexist', 'utmwebmaster_checkuserexist_shortc
 
 function utmwebmaster_sitenouser_shortcode($atts)
 {
-    echo "<script src='".utm_webmaster_plugin_url."tablesort.min.js'></script>";
-    echo '<link rel="stylesheet" href="'.utm_webmaster_plugin_url.'style.css" type="text/css" media="all">';
+    echo "<script src='".UTM_WEBMASTER_PLUGIN_URL."tablesort.min.js'></script>";
+    echo '<link rel="stylesheet" href="'.UTM_WEBMASTER_PLUGIN_URL.'style.css" type="text/css" media="all">';
     global $wpdb;
     $blogs = $wpdb->get_results("SELECT * FROM `" . $wpdb->blogs . "` WHERE `deleted`!=1 ORDER BY blog_id DESC");
     $k = 0;

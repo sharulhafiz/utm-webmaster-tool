@@ -7,53 +7,63 @@ document.addEventListener("DOMContentLoaded", function() {
 	var pinSent = false;
 	var emailTimeout;
 
-	passwordLabel.textContent = "PIN";
+	// Set up UI
+	passwordLabel.textContent = "PIN (Check your email at " + emailField.value + ")";
 	userPassWrap.style.display = "none";
 	forgetmenot.style.display = "none";
 
-	// Event listener for email field
-	emailField.addEventListener("keyup", function() {
-		clearTimeout(emailTimeout);
-		emailTimeout = setTimeout(function() {
-			// Show loader right after email field
-			emailField.insertAdjacentHTML("afterend", loaderHtml);
-			if (!pinSent && emailField.value) {
-				// Send AJAX request to send PIN
-				jQuery.ajax({
-					url: sso_ajax.ajax_url,
-					type: 'POST',
-					data: {
-						action: 'send_pin',
-						email: emailField.value
-					},
-					success: function(response) {
-						if (response.success) {
-							// enable PIN field
-							document.getElementById("loader").remove();
-							passwordField.disabled = false;
-							userPassWrap.style.display = "block";
-							passwordField.type = "password";
-							pinSent = true;
-							emailField.readOnly = true;
-							console.log(response.data);
-						} else {
-							console.log(response.data);
-						}
-					},
-					error: function(response) {
-						console.log("An error occurred. Please try again.");
-					}
-				});
-			}
-		}, 1000); // Delay of 1 second
-	});
+	// Show the submit button (in case it was hidden by previous code)
+	var submitBtn = document.getElementById("wp-submit");
+	if (submitBtn) {
+		submitBtn.style.display = "inline-block";
+		submitBtn.disabled = false;
+	}
 
-	// Event listener for PIN field
-	passwordField.addEventListener("keyup", function() {
-		if (passwordField.value.length == 6) {
-			// Show loader right after PIN field
-			passwordField.insertAdjacentHTML("afterend", loaderHtml);
-			// Send AJAX request to validate PIN
+	document.getElementById("loginform").addEventListener("submit", function(e) {
+		e.preventDefault();
+
+		// If PIN field is hidden, treat as requesting PIN
+		if (!pinSent && emailField.value) {
+			// Show loader right after email field
+			if (!document.getElementById("loader")) {
+				emailField.insertAdjacentHTML("afterend", loaderHtml);
+			}
+			jQuery.ajax({
+				url: sso_ajax.ajax_url,
+				type: 'POST',
+				data: {
+					action: 'send_pin',
+					email: emailField.value
+				},
+				success: function(response) {
+					if (response.success) {
+						if (document.getElementById("loader")) document.getElementById("loader").remove();
+						passwordField.disabled = false;
+						userPassWrap.style.display = "block";
+						passwordField.type = "password";
+						pinSent = true;
+						emailField.readOnly = true;
+						if (submitBtn) submitBtn.value = "Submit PIN";
+						// Show alert to user that PIN has been sent
+						alert("Check your email for pin code");
+					} else {
+						if (document.getElementById("loader")) document.getElementById("loader").remove();
+						alert(response.data || "Failed to send PIN.");
+					}
+				},
+				error: function(response) {
+					if (document.getElementById("loader")) document.getElementById("loader").remove();
+					alert("An error occurred. Please try again.");
+				}
+			});
+			return;
+		}
+
+		// If PIN field is visible and filled, validate PIN
+		if (pinSent && passwordField.value.length === 6) {
+			if (!document.getElementById("loader")) {
+				passwordField.insertAdjacentHTML("afterend", loaderHtml);
+			}
 			jQuery.ajax({
 				url: sso_ajax.ajax_url,
 				type: 'POST',
@@ -62,55 +72,40 @@ document.addEventListener("DOMContentLoaded", function() {
 					email: emailField.value,
 					pin: passwordField.value
 				},
-				success: function(response) {
-					if (response.success) {
-						// Remove loader
-						document.getElementById("loader").remove();
-						// Show success message
-						alert("Login successful. Redirecting...");
-						// Login success
-						console.log(response.data);
-						// Redirect to redirect_to from GET parameter
-						var url = new URL(window.location.href);
-						var redirect_to = url.searchParams.get("redirect_to");
-						if (redirect_to) {
-							window.location.href
-								= decodeURIComponent(redirect_to);
-						} else {
-							// Redirect to dashboard
-							window.location.href = "/wp-admin";
-						}
-						
-					} else {
-						alert("Invalid PIN. Please try again.");
-					}
-				},
+				   success: function(response) {
+					   if (document.getElementById("loader")) document.getElementById("loader").remove();
+					   if (response.success) {
+						   // Always reload the page after successful login to refresh REST nonce and cookies
+						   window.location.reload();
+					   } else {
+						   alert("Invalid PIN. Please try again.");
+					   }
+				   },
 				error: function(response) {
-					console.log("An error occurred. Please try again.");
+					if (document.getElementById("loader")) document.getElementById("loader").remove();
+					alert("An error occurred. Please try again.");
 				}
 			});
+			return;
+		}
+
+		// If PIN not filled
+		if (pinSent && passwordField.value.length !== 6) {
+			alert("Please enter the 6-digit PIN sent to your email address.");
+			return;
+		}
+
+		// If email not filled
+		if (!emailField.value) {
+			alert("Please enter your email address.");
+			return;
 		}
 	});
 
-	// Prevent form submission if PIN is not entered
-	document.getElementById("loginform").addEventListener("submit", function(e) {
-		if (!pinSent) {
-			e.preventDefault();
-			alert("Please enter the PIN sent to your email address.");
-		}
-	});
+	// Optionally, allow Enter key to submit the form (default behavior)
 });
 
-jQuery(document).ready(function ($) {
-	$("#loginform").keypress(function (e) {
-		if (e.which == 13) {
-			e.preventDefault();
-			return false;
-		}
-	});
-});
-
-const loaderHtml = `<div id="loader" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+const loaderHtml = `<div id="loader" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
 	<svg style="margin: auto; background: rgb(255, 255, 255, 0); display: block; shape-rendering: auto;" width="100px" height="100px" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid">
 		<circle cx="50" cy="50" r="32" stroke-width="8" stroke="#af244e" stroke-dasharray="50.26548245743669 50.26548245743669" fill="none" stroke-linecap="round">
 			<animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" keyTimes="0;1" values="0 50 50;360 50 50"></animateTransform>

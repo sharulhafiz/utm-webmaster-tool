@@ -1,6 +1,25 @@
 <?php
 // ini_set("memory_limit","512M");
 // multisite statistics
+// add to menu in network
+function utm_register_admin_menu()
+{
+	add_menu_page(
+		__('UTM Webmaster Tool', 'textdomain'),
+		'UTM Webmaster Tool',
+		'manage_options',
+		'multisite_statistics',
+		'multisite_statistics',
+		'dashicons-chart-area', // Suitable icon for statistics
+		25
+	);
+	add_submenu_page('multisite_statistics', 'Orphan Users', 'Orphan Users', 'manage_options', 'delete_orphan_user', 'delete_orphan_user');
+	add_submenu_page('multisite_statistics', 'Add To Blogs', 'Add To Blogs', 'manage_options', 'add_user_to_blogs', 'add_user_to_blogs');
+	add_submenu_page('multisite_statistics', 'Network Admin', 'Network Admin', 'manage_options', 'change_network_admin_email', '');
+	add_submenu_page('multisite_statistics', 'Disable Plugin', 'Disable Plugin', 'manage_options', 'network_deactivation_page', 'network_deactivation_page');
+}
+add_action('network_admin_menu', 'utm_register_admin_menu');
+
 function multisite_statistics()
 {
 	$total_sites_post_page = $total_sites_diskusage = 0;

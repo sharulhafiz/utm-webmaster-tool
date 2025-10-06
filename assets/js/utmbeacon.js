@@ -5,7 +5,7 @@
 (function() {
   fetch(window.location.href, { method: 'HEAD' })
     .then(response => {
-      const cacheStatus = response.headers.get('X-Cache-Status');
+      const cacheStatus = response.headers.get('X-Cache-Status') || response.headers.get('hummingbird-cache');
       const payload = JSON.stringify({
         url: window.location.href,
         status: cacheStatus || 'Missed',

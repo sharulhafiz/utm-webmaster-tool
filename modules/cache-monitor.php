@@ -1,4 +1,6 @@
 <?php
+// Enable maintenance mode, only allow access to logged-in users
+return;
 /*
 * Logger Endpoint via REST API
 */
@@ -8,7 +10,7 @@ add_action('wp_enqueue_scripts', function() {
         'cache-monitor-beacon',
         plugins_url('assets/js/utmbeacon.js', dirname(__FILE__)),
         [],
-        utm_plugin_version,
+        UTM_PLUGIN_VERSION,
         true
     );
 });
@@ -21,36 +23,67 @@ add_action('rest_api_init', function () {
     ]);
 });
 
+// Schedule cron event if not already scheduled
+add_action('init', function() {
+    if (!wp_next_scheduled('cm_flush_log_queue')) {
+        wp_schedule_event(time(), 'minute', 'cm_flush_log_queue');
+    }
+});
+
+// REST endpoint: queue log entry instead of writing immediately
 function cm_log_cache_hit($request){
     $data = $request->get_json_params();
     if (!$data || !isset($data['url'])) {
-        // Try to parse raw body as JSON (for sendBeacon)
         $raw = $request->get_body();
         $data = json_decode($raw, true);
     }
-    if (!$data || !isset($data['url'])) return new WP_REST_Response(null, 400);
-
-    $log_dir = WP_CONTENT_DIR . '/cache_logs';
-    if (!file_exists($log_dir)) {
-        mkdir($log_dir, 0755, true);
+    if (!$data || !isset($data['url']) || !isset($data['status']) || !isset($data['timestamp'])) {
+        return new WP_REST_Response(['error' => 'Missing required fields'], 400);
     }
-    $log_file = $log_dir . '/cache_hits_' . date('Y-m-d') . '.log';
 
     $site_id = get_current_blog_id();
     $dt = new DateTime('@' . ($data['timestamp'] / 1000));
-    $dt->setTimezone(new DateTimeZone('Asia/Kuala_Lumpur')); // GMT+8
+    $dt->setTimezone(new DateTimeZone('Asia/Kuala_Lumpur'));
     $log_time = $dt->format('Y-m-d H:i:s');
     $log_entry = sprintf(
         "[%s] Site #%d %s - %s\n",
         $log_time,
         $site_id,
-        $data['url'],
-        $data['status']
+        esc_url_raw($data['url']),
+        sanitize_text_field($data['status'])
     );
 
-    file_put_contents($log_file, $log_entry, FILE_APPEND);
+    // Queue log entry in transient
+    $queue = get_transient('cm_log_queue');
+    if (!is_array($queue)) $queue = [];
+    $queue[] = $log_entry;
+    set_transient('cm_log_queue', $queue, 5 * MINUTE_IN_SECONDS);
+
     return new WP_REST_Response(null, 204);
 }
+
+// Cron job: flush queued log entries to file
+add_action('cm_flush_log_queue', function() {
+    $queue = get_transient('cm_log_queue');
+    if (!empty($queue) && is_array($queue)) {
+        $log_dir = WP_CONTENT_DIR . '/cache_logs';
+        if (!file_exists($log_dir)) {
+            mkdir($log_dir, 0755, true);
+        }
+        $log_file = $log_dir . '/cache_hits_' . date('Y-m-d') . '.log';
+        $fp = fopen($log_file, 'a');
+        if ($fp) {
+            if (flock($fp, LOCK_EX)) {
+                foreach ($queue as $log_entry) {
+                    fwrite($fp, $log_entry);
+                }
+                flock($fp, LOCK_UN);
+            }
+            fclose($fp);
+        }
+        delete_transient('cm_log_queue');
+    }
+});
 
 // Dashboard Page in Multisite or Single Site
 if (is_multisite()) {
@@ -84,14 +117,18 @@ function cm_render_dashboard()
         foreach ($log_files as $log_file) {
             $lines = file($log_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             foreach ($lines as $line) {
-                if (preg_match('/\[(\d{4}-\d{2}-\d{2}) (\d{2}):\d{2}:\d{2})\].*-\s+(\w+)/', $line, $m)) {
-                    $hour = $m[2];
-                    $status = strtolower($m[3]);
-                    if (!isset($hourly[$hour])) $hourly[$hour] = ['hit' => 0, 'missed' => 0];
-                    if ($status === 'served') {
+                // Match: [YYYY-MM-DD HH:MM:SS] ... - Status
+                if (preg_match('/\[\d{4}-\d{2}-\d{2} (\d{2}):\d{2}:\d{2}\].*-\s+(\w+)/i', $line, $m)) {
+                    $hour = $m[1];
+                    $status_raw = strtolower($m[2]);
+                    // Track each status separately
+                    if (!isset($hourly[$hour])) $hourly[$hour] = ['hit' => 0, 'missed' => 0, 'served' => 0];
+                    if ($status_raw === 'hit') {
                         $hourly[$hour]['hit']++;
-                    } else {
+                    } elseif ($status_raw === 'missed') {
                         $hourly[$hour]['missed']++;
+                    } elseif ($status_raw === 'served') {
+                        $hourly[$hour]['served']++;
                     }
                 }
             }
@@ -101,11 +138,13 @@ function cm_render_dashboard()
     $hours = [];
     $hits = [];
     $misses = [];
+    $served = [];
     for ($h = 0; $h < 24; $h++) {
         $label = str_pad($h, 2, '0', STR_PAD_LEFT);
         $hours[] = $label;
         $hits[] = isset($hourly[$label]['hit']) ? $hourly[$label]['hit'] : 0;
         $misses[] = isset($hourly[$label]['missed']) ? $hourly[$label]['missed'] : 0;
+        $served[] = isset($hourly[$label]['served']) ? $hourly[$label]['served'] : 0;
     }
 
     echo "<div class=\"wrap\"><h1>Cache Hit Log ($today)</h1>";
@@ -123,14 +162,19 @@ function cm_render_dashboard()
                 labels: <?php echo json_encode($hours); ?>,
                 datasets: [
                     {
-                        label: 'Hits',
+                        label: 'HIT',
                         data: <?php echo json_encode($hits); ?>,
                         backgroundColor: 'rgba(54, 162, 235, 0.7)'
                     },
                     {
-                        label: 'Misses',
+                        label: 'Missed',
                         data: <?php echo json_encode($misses); ?>,
                         backgroundColor: 'rgba(255, 99, 132, 0.7)'
+                    },
+                    {
+                        label: 'Served',
+                        data: <?php echo json_encode($served); ?>,
+                        backgroundColor: 'rgba(255, 206, 86, 0.7)'
                     }
                 ]
             },
@@ -138,7 +182,7 @@ function cm_render_dashboard()
                 responsive: true,
                 plugins: {
                     legend: { position: 'top' },
-                    title: { display: true, text: 'Cache Hits & Misses by Hour' }
+                    title: { display: true, text: 'Cache Status by Hour' }
                 },
                 scales: {
                     x: { title: { display: true, text: 'Hour' } },

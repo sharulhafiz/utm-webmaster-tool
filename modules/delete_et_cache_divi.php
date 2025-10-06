@@ -1,4 +1,5 @@
 <?php
+return;
 // Prevent direct access
 if (!defined('ABSPATH')) {
     exit;

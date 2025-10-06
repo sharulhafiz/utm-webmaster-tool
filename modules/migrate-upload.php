@@ -1,4 +1,5 @@
 <?php
+return;
 // Add a custom rewrite rule
 function custom_rewrite_rules($rules)
 {

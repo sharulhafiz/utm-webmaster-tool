@@ -21,8 +21,9 @@ function utm_seo() {
 
         // Google Analytics tracking code
         $tracking_ids = [
-            'news.utm.my' => 'G-2PPE4JRE18',
-            'all' => 'G-N3HJW8G3P7',
+            'news.utm.my'   => 'G-2PPE4JRE18',
+            'space.utm.my'  => 'G-PJKMV7MRH0',
+            'all'           => 'G-N3HJW8G3P7',
         ];
 
         $host = sanitize_text_field($_SERVER['HTTP_HOST']);
