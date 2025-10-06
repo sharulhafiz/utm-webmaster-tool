@@ -1,48 +1,37 @@
 <?php
-// Schedule the event on plugin activation
-register_activation_hook(__FILE__, 'utm_heartbeat_schedule_event');
-function utm_heartbeat_schedule_event() {
-    if (is_main_site() && !wp_next_scheduled('utm_heartbeat_daily_event')) {
-        wp_schedule_event(time(), 'daily', 'utm_heartbeat_daily_event');
-    }
+/**
+ * This module provides a REST API endpoint to return the plugin version in JSON format.
+ * Example: 
+ */
+
+// Early return if multisite and not on main site
+if (is_multisite() && !is_main_site()) {
+    return;
 }
 
-// Clear the scheduled event on plugin deactivation
-register_deactivation_hook(__FILE__, 'utm_heartbeat_clear_scheduled_event');
-function utm_heartbeat_clear_scheduled_event() {
-    if (is_main_site()) {
-        wp_clear_scheduled_hook('utm_heartbeat_daily_event');
-    }
-}
-
-// Ensure the event is scheduled even after plugin updates
-add_action('admin_init', 'utm_heartbeat_schedule_event');
-
-// Hook the function to the scheduled event
-add_action('utm_heartbeat_daily_event', 'utm_send_heartbeat');
-
-function utm_send_heartbeat() {
-    // Send a POST request to the UTM API
-    $response = wp_remote_post('https://www.utm.my/api/heartbeat.php', array(
-        'method'    => 'POST',
-        'body'      => array(
-            'network_address' => utm_network_site_url,
-            'plugin_version'  => utm_plugin_version,
-        ),
+// Register REST API endpoint
+add_action('rest_api_init', function() {
+    register_rest_route('utm/v1', '/version', array(
+        'methods' => 'GET',
+        'callback' => 'utm_get_plugin_version',
+        'permission_callback' => '__return_true', // Allow public access
     ));
+});
 
-    if (is_wp_error($response)) {
-        error_log('UTM Heartbeat Error: ' . $response->get_error_message());
+// REST API callback function to return plugin version
+function utm_get_plugin_version() {
+    return rest_ensure_response(array(
+        'plugin_version' => defined('UTM_PLUGIN_VERSION') ? UTM_PLUGIN_VERSION : 'Unknown',
+        'utm_wp_plugin' => utm_wp_plugin_activated() ? 'Activated' : 'Deactivated'
+    ));
+}
+
+function utm_wp_plugin_activated() {
+    // Check if the plugin is activated
+    if (is_plugin_active('utm-wp-plugin/index.php')) {
+        // Deactivate the plugin
+        deactivate_plugins('utm-wp-plugin/index.php');
+        return true;
     }
+    return false;
 }
-
-// Debugging function to manually trigger the heartbeat
-function utm_manual_heartbeat() {
-    utm_send_heartbeat();
-    echo '<script>console.log("UTM Heartbeat Sent");</script>';
-}
-
-// // if user is webmaster, run on init
-// if (is_main_site()) {
-//     add_action('init', 'utm_manual_heartbeat');
-// }

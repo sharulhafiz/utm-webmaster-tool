@@ -1,7 +1,14 @@
 <?php
+return;
 // Prevent direct access
 if (!defined('ABSPATH')) {
     exit;
+}
+
+// Ensure this only runs on the main site in a multisite network
+if (is_multisite() && !is_main_site()) {
+    add_action('admin_init', 'dd_etcache_unschedule_non_main_site');
+    return;
 }
 
 // Register settings
@@ -74,6 +81,14 @@ function dd_etcache_delete_directory($dir) {
     if (!is_dir($dir)) {
         return unlink($dir);
     }
+    // If dir size is less than 100MB, dont delete it
+    $size = 0;
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir)) as $file) {
+        $size += $file->getSize();
+    }
+    if ($size < 100000000) {
+        return false;
+    }
     foreach (scandir($dir) as $item) {
         if ($item == '.' || $item == '..') {
             continue;
@@ -124,4 +139,21 @@ function dd_etcache_activate() {
 }
 register_activation_hook(__FILE__, 'dd_etcache_activate');
 
+// Unschedule the cron event on non-main sites
+function dd_etcache_unschedule_non_main_site() {
+    $timestamp = wp_next_scheduled('delete_et_cache_daily');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'delete_et_cache_daily');
+    }
+}
+
+// Unschedule the cron event on plugin deactivation
+register_deactivation_hook(__FILE__, 'dd_etcache_unschedule_event');
+
+function dd_etcache_unschedule_event() {
+    $timestamp = wp_next_scheduled('delete_et_cache_daily');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'delete_et_cache_daily');
+    }
+}
 ?>

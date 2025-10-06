@@ -1,77 +1,86 @@
 <?php
 /*
 Plugin Name: UTM Webmaster Tool
-Plugin URI: http://osca.utm.my/webteam
+Plugin URI: https://osca.utm.my/webteam
 Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
-Author URI: http://people.utm.my/sharulhafiz
+Author URI: https://people.utm.my/sharulhafiz
+Version: 5.37
 */
-define('utm_plugin_version', '5.26');
-define('utm_network_site_url', get_site_url());
 
-require_once ABSPATH . 'wp-admin/includes/ms.php';
-include(plugin_dir_path(__FILE__) . 'shortcodes.php');
-include(plugin_dir_path(__FILE__) . 'listblogs.php');
-include(plugin_dir_path(__FILE__) . 'multisite-api.php');
-include(plugin_dir_path(__FILE__) . 'multisite-statistics.php');
-include(plugin_dir_path(__FILE__) . 'modules/googleanalytics.php');
-include(plugin_dir_path(__FILE__) . 'modules/bulkdeleteuser.php');
-include(plugin_dir_path(__FILE__) . 'modules/migrate-upload.php');
-include(plugin_dir_path(__FILE__) . 'modules/fixuploadpath.php');
-include(plugin_dir_path(__FILE__) . 'modules/fixuserrole.php');
-include(plugin_dir_path(__FILE__) . 'function.php');
-include(plugin_dir_path(__FILE__) . 'modules/comment_anti_spam/comment_anti_spam.php');
-include(plugin_dir_path(__FILE__) . 'modules/people/redirect_to_site.php');
-include(plugin_dir_path(__FILE__) . 'modules/disableplugin.php');
-include(plugin_dir_path(__FILE__) . 'modules/staffapi.php'); // only load on registrar.utm.my domain
-include(plugin_dir_path(__FILE__) . 'modules/bulk-add-user.php');
-include_once(plugin_dir_path(__FILE__) . 'modules/postExport.php'); // Export post to csv - 18 March 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/nlp-to-ics.php'); // Convert natural text into .ics file
-include_once(plugin_dir_path(__FILE__) . 'modules/content-visibility-shortcodes.php'); // show content based on user - 12/8/2024
-// include_once(plugin_dir_path(__FILE__) . 'modules/popup-ads.php'); // Popup ads - 13 May 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/smtp.php'); // GMAIL SMPT - 22 Oct 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/loginlogger.php'); // Login logger - 10 Nov 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/registrar.php'); // Registrar code - 20 Nov 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/heartbeat.php'); // Heartbeat - 12 Dec 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/update/index.php'); // Update Module - 17 Dec 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/visitor_manager.php'); // UTM Visitor Manager - 30 Dec 2024
-include_once(plugin_dir_path(__FILE__) . 'modules/delete_et_cache_divi.php'); // Daily Delete ETCACHE for DIVI - 1 Jan 2025
-
-if (!class_exists('WP_List_Table')) {
-	require_once(ABSPATH . 'wp-admin/includes/class-wp-list-table.php');
+// Exit if accessed directly for security.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
 }
 
-$url = plugin_dir_path(__FILE__);
-// if not defined, define it
-if (!defined("utm_webmaster_plugin_path")) define("utm_webmaster_plugin_path", plugin_dir_path(__FILE__));
-if (!defined("utm_webmaster_plugin_url")) define("utm_webmaster_plugin_url", WP_PLUGIN_URL . "/" . basename($url) . "/");
+// Define basic constants. These are fine as they are static.
+define( 'UTM_PLUGIN_VERSION', '5.37' );
+define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
+define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
-// // register hook
-// register_activation_hook(__FILE__, 'notice_to_single_site_wp');
-// function notice_to_single_site_wp()
-// {
-// 	if (is_multisite() == False) {
-// 		echo "FOR MULTISITE ONLY!";
-// 	}
-// }
+/**
+ * Function to run tasks ONLY ONCE upon plugin activation.
+ * This is the correct place for cleanup and setup.
+ */
+function utm_plugin_activation_hook() {
+    $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
+    
+    // --- Self-cleanup logic moved here ---
+    $files_to_remove = ['smtp.php','fixuploadpath-copy.php','generate_ics.php','visitor_manager.php','notes.txt','deletecomments.php','allinonemigration.php','update.php','nlp-to-ics.php'];
+    $folders_to_remove = ['comment_anti_spam'];
 
-// add to menu in network
-function utm_register_admin_menu()
-{
-	add_menu_page(
-		__('UTM Webmaster Tool', 'textdomain'),
-		'UTM Webmaster Tool',
-		'manage_options',
-		'multisite_statistics',
-		'multisite_statistics',
-		25
-	);
-	add_submenu_page('multisite_statistics', 'Orphan Users', 'Orphan Users', 'manage_options', 'delete_orphan_user', 'delete_orphan_user');
-	add_submenu_page('multisite_statistics', 'Add To Blogs', 'Add To Blogs', 'manage_options', 'add_user_to_blogs', 'add_user_to_blogs');
-	add_submenu_page('multisite_statistics', 'Network Admin', 'Network Admin', 'manage_options', 'change_network_admin_email', '');
-	add_submenu_page('multisite_statistics', 'Disable Plugin', 'Disable Plugin', 'manage_options', 'network_deactivation_page', 'network_deactivation_page');
-	// a page that fetch a list of api endpoint and display response
-	add_submenu_page('multisite_statistics', 'API Tester', 'API Tester', 'manage_options', 'api_tester', 'api_tester');
+    // Remove obsolete folders
+    foreach ( $folders_to_remove as $folder ) {
+        $folder_path = $modules_dir . $folder;
+        if ( is_dir( $folder_path ) ) {
+            $files = glob( $folder_path . '/{,.}*', GLOB_BRACE );
+            foreach ( $files as $file ) {
+                if ( is_file( $file ) ) {
+                    unlink( $file );
+                }
+            }
+            rmdir( $folder_path );
+        }
+    }
+
+    // Remove obsolete files
+    foreach ( $files_to_remove as $file ) {
+        if ( file_exists( $modules_dir . $file ) ) {
+            unlink( $modules_dir . $file );
+        }
+    }
 }
-add_action('network_admin_menu', 'utm_register_admin_menu');
+// Register the activation hook.
+register_activation_hook( __FILE__, 'utm_plugin_activation_hook' );
+
+
+/**
+ * Load all plugin modules.
+ * For better performance, avoid glob() and list files explicitly.
+ */
+function utm_load_modules() {
+    $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
+    $modules = array('analytics', 'antispam', 'backup', 'brokenlink', 'bulk-add-user', 'bulkdeleteuser', 'cache-monitor', 'chatbot', 'content-visibility-shortcodes', 'delete_et_cache_divi', 'disableplugin', 'events', 'fixuploadpath', 'fixuserrole', 'formidableforms', 'googleanalytics', 'heartbeat', 'listblogs', 'loginlogger', 'mail', 'migrate-upload', 'multisite-api', 'multisite-statistics', 'news.utm.my', 'people.utm.my', 'performance-patch', 'popup-ads', 'postExport', 'protected-content', 'registrar', 'seo', 'shortcodes', 'sso', 'staffapi', 'support.utm.my', 'timezone', 'updatenetworkadminemail', 'usermeta', 'utmlenses', 'utm-news-import');
+
+    // This is still using glob(), but a better long-term solution is a static array.
+    // However, moving it into a function is already an improvement.
+    foreach ( $modules as $module ) {
+        $file = $modules_dir . $module . '.php';
+        if ( file_exists( $file ) ) {
+            require_once $file;
+        }
+    }
+
+    // Now it's safe to load files that depend on WordPress core.
+    if ( ! class_exists( 'WP_List_Table' ) ) {
+        require_once( ABSPATH . 'wp-admin/includes/class-wp-list-table.php' );
+    }
+
+    // Define the dynamic site URL constant here, after WordPress has loaded.
+    if ( ! defined( 'UTM_NETWORK_SITE_URL' ) ) {
+        define( 'UTM_NETWORK_SITE_URL', get_site_url() );
+    }
+}
+// Use the 'plugins_loaded' hook to ensure all plugins are loaded before your modules.
+add_action( 'plugins_loaded', 'utm_load_modules' );
