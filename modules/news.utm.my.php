@@ -301,6 +301,113 @@ function utm_news_save_settings() {
     add_settings_error('utm_news_settings', 'settings_updated', 'Settings saved successfully.', 'success');
 }
 
+/**
+ * Detect language from content (Malay/English)
+ * 
+ * @param string $content The post content to analyze
+ * @return string Language code: 'ms' for Malay, 'en' for English, 'unknown' if insufficient keywords
+ */
+function utm_news_detect_language($content) {
+    // Remove HTML tags
+    $content = wp_strip_all_tags($content);
+    
+    // Remove shortcodes
+    $content = strip_shortcodes($content);
+    
+    // Convert to lowercase for case-insensitive matching
+    $content = strtolower($content);
+    
+    // Malay keywords with higher specificity first
+    $malay_keywords = array(
+        'adalah', 'untuk', 'dengan', 'yang', 'ini', 'akan', 'dapat', 'kepada', 
+        'telah', 'pada', 'dari', 'atau', 'juga', 'oleh', 'dalam', 'tidak', 
+        'sebagai', 'antara', 'seperti', 'melalui'
+    );
+    
+    // English keywords
+    $english_keywords = array(
+        'the', 'is', 'and', 'of', 'to', 'in', 'for', 'that', 'with', 'this',
+        'from', 'or', 'also', 'by', 'not', 'as', 'between', 'like', 'through', 'has'
+    );
+    
+    // Count Malay keywords
+    $malay_count = 0;
+    foreach ($malay_keywords as $keyword) {
+        // Use word boundary matching to avoid substring matches
+        $pattern = '\b' . preg_quote($keyword, '/') . '\b';
+        $malay_count += preg_match_all('/' . $pattern . '/u', $content);
+    }
+    
+    // Count English keywords
+    $english_count = 0;
+    foreach ($english_keywords as $keyword) {
+        // Use word boundary matching to avoid substring matches
+        $pattern = '\b' . preg_quote($keyword, '/') . '\b';
+        $english_count += preg_match_all('/' . $pattern . '/u', $content);
+    }
+    
+    // Minimum threshold to detect a language
+    $min_threshold = 3;
+    
+    // If neither language meets threshold
+    if ($malay_count < $min_threshold && $english_count < $min_threshold) {
+        return 'unknown';
+    }
+    
+    // Return language with higher keyword count
+    if ($malay_count >= $english_count) {
+        return ($malay_count >= $min_threshold) ? 'ms' : 'unknown';
+    } else {
+        return ($english_count >= $min_threshold) ? 'en' : 'unknown';
+    }
+}
+
+/**
+ * Get language for summary generation
+ * 
+ * Determines the language to use for AI summary based on:
+ * 1. Admin preference setting ('auto' to detect, 'ms', or 'en')
+ * 2. If 'auto': detects from post content
+ * 3. Fallback to 'en' if detection results in 'unknown'
+ * 
+ * @param int $post_id The post ID to analyze
+ * @return string Language code: 'ms' or 'en'
+ */
+function utm_news_get_summary_language($post_id) {
+    // Get admin preference
+    $language_pref = get_option('utm_news_language_pref', 'auto');
+    
+    // If preference is set to 'ms' or 'en', use it directly
+    if ($language_pref === 'ms' || $language_pref === 'en') {
+        return $language_pref;
+    }
+    
+    // If preference is 'auto', detect from post content
+    if ($language_pref === 'auto') {
+        $post = get_post($post_id);
+        
+        if (!$post) {
+            return 'en'; // Fallback if post not found
+        }
+        
+        // Get the post content
+        $content = $post->post_content;
+        
+        // Detect language from content
+        $detected = utm_news_detect_language($content);
+        
+        // If detection is 'unknown', fallback to English
+        if ($detected === 'unknown') {
+            return 'en';
+        }
+        
+        return $detected;
+    }
+    
+    // Default fallback
+    return 'en';
+}
+
 // Register admin menu
 add_action('admin_menu', 'utm_news_register_settings_menu');
 
