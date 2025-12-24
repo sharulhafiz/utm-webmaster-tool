@@ -774,11 +774,246 @@ function utm_news_save_audio_to_media($audio_data, $post_id, $filename) {
     return $attachment_id;
 }
 
+/**
+ * Prepend AI summary box to post content
+ * 
+ * Displays a styled summary box at the top of post content
+ * if _ai_summary post meta exists. Only runs on single post pages.
+ * 
+ * @param string $content Post content
+ * @return string Modified content with summary box prepended
+ */
+function utm_news_prepend_summary_box($content) {
+    // Only run on single post pages
+    if (!is_singular('post')) {
+        return $content;
+    }
+    
+    global $post;
+    if (!isset($post->ID)) {
+        return $content;
+    }
+    
+    // Get summary from post meta
+    $summary = get_post_meta($post->ID, '_ai_summary', true);
+    if (empty($summary)) {
+        return $content;
+    }
+    
+    // Build summary box HTML
+    $box_html = '<div class="utm-news-ai-summary" style="background: #f0f7ff; border-left: 4px solid #0073aa; padding: 15px 20px; margin: 0 0 25px 0; border-radius: 4px;">';
+    $box_html .= '<h4 style="margin: 0 0 10px 0; color: #0073aa; font-size: 16px;">📝 Ringkasan / Summary</h4>';
+    $box_html .= '<p style="margin: 0; line-height: 1.6; color: #333;">' . wp_kses_post($summary) . '</p>';
+    $box_html .= '</div>';
+    
+    return $box_html . $content;
+}
+
+/**
+ * Prepend audio player to post content
+ * 
+ * Displays an audio player at the top of post content
+ * if _audio_attachment_id post meta exists. Only runs on single post pages.
+ * 
+ * @param string $content Post content
+ * @return string Modified content with audio player prepended
+ */
+function utm_news_prepend_audio_player($content) {
+    // Only run on single post pages
+    if (!is_singular('post')) {
+        return $content;
+    }
+    
+    global $post;
+    if (!isset($post->ID)) {
+        return $content;
+    }
+    
+    // Get attachment ID from post meta
+    $attachment_id = get_post_meta($post->ID, '_audio_attachment_id', true);
+    if (empty($attachment_id)) {
+        return $content;
+    }
+    
+    // Get audio URL
+    $audio_url = wp_get_attachment_url($attachment_id);
+    if (empty($audio_url)) {
+        return $content;
+    }
+    
+    // Build audio player HTML
+    $player_html = '<div class="utm-news-audio-player" style="background: #fff8e1; border-left: 4px solid #ff9800; padding: 15px 20px; margin: 0 0 20px 0; border-radius: 4px;">';
+    $player_html .= '<h4 style="margin: 0 0 10px 0; color: #ff9800; font-size: 16px;">🎧 Audio Shortcast</h4>';
+    $player_html .= '<audio controls style="width: 100%; max-width: 600px;">';
+    // Detect actual MIME type from attachment, fallback to audio/mpeg
+    $mime_type = get_post_mime_type($attachment_id) ?: 'audio/mpeg';
+    $player_html .= '<source src="' . esc_url($audio_url) . '" type="' . esc_attr($mime_type) . '">';
+    $player_html .= 'Your browser does not support the audio element.';
+    $player_html .= '</audio>';
+    $player_html .= '</div>';
+    
+    return $player_html . $content;
+}
+
+/**
+ * Register meta box for manual regenerate button
+ * 
+ * Adds a meta box to the post editor sidebar for regenerating
+ * summary and audio content.
+ */
+function utm_news_add_regenerate_metabox() {
+    add_meta_box(
+        'utm_news_regenerate',
+        'AI Content Regeneration',
+        'utm_news_render_regenerate_metabox',
+        'post',
+        'side',
+        'default'
+    );
+}
+
+/**
+ * Render meta box HTML for manual regenerate
+ * 
+ * Displays current generation status and regenerate button.
+ * 
+ * @param WP_Post $post Post object
+ */
+function utm_news_render_regenerate_metabox($post) {
+    if (!isset($post->ID)) {
+        return;
+    }
+    
+    // Get current status
+    $has_summary = !empty(get_post_meta($post->ID, '_ai_summary', true));
+    $has_audio = !empty(get_post_meta($post->ID, '_audio_attachment_id', true));
+    
+    // Build status indicators
+    $summary_status = $has_summary ? '✅ Generated' : '❌ Not generated';
+    $audio_status = $has_audio ? '✅ Generated' : '❌ Not generated';
+    ?>
+    <div>
+        <p><strong>Current Status:</strong></p>
+        <ul>
+            <li>AI Summary: <?php echo esc_html($summary_status); ?></li>
+            <li>Audio Shortcast: <?php echo esc_html($audio_status); ?></li>
+        </ul>
+        <p><strong>Regenerate Content:</strong></p>
+        <p>Click the button below to regenerate the AI summary and audio shortcast. This will replace existing content.</p>
+        <form method="post" action="">
+            <?php wp_nonce_field('utm_news_regenerate_nonce', '_wpnonce'); ?>
+            <input type="hidden" name="utm_news_regenerate" value="1">
+            <button type="submit" class="button button-primary">Regenerate Summary & Audio</button>
+        </form>
+    </div>
+    <?php
+}
+
+/**
+ * Handle manual regenerate request
+ * 
+ * Processes the regenerate form submission, validates nonce,
+ * and triggers generation of summary and audio with force=true.
+ */
+function utm_news_handle_manual_regenerate() {
+    // Check if on admin edit page
+    global $pagenow;
+    if (!is_admin() || $pagenow !== 'post.php') {
+        return;
+    }
+    
+    // Check if regenerate form was submitted
+    if (!isset($_POST['utm_news_regenerate']) || $_POST['utm_news_regenerate'] !== '1') {
+        return;
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'utm_news_regenerate_nonce')) {
+        return;
+    }
+    
+    // Check user capability
+    if (!current_user_can('edit_posts')) {
+        return;
+    }
+    
+    // Get post ID
+    if (!isset($_GET['post'])) {
+        return;
+    }
+    
+    $post_id = intval($_GET['post']);
+    if ($post_id <= 0) {
+        return;
+    }
+    
+    // Delete existing metas
+    delete_post_meta($post_id, '_ai_summary');
+    delete_post_meta($post_id, '_audio_attachment_id');
+    
+    // Store success message in transient and check generation results
+    $summary_result = utm_news_generate_ai_summary($post_id, true);
+    $audio_result = utm_news_generate_tts_audio($post_id, true);
+    
+    if ($summary_result && $audio_result) {
+        set_transient('utm_news_regenerate_success_' . $post_id, 'both', 45);
+    } elseif ($summary_result) {
+        set_transient('utm_news_regenerate_success_' . $post_id, 'summary_only', 45);
+    } elseif ($audio_result) {
+        set_transient('utm_news_regenerate_success_' . $post_id, 'audio_only', 45);
+    } else {
+        set_transient('utm_news_regenerate_success_' . $post_id, 'failed', 45);
+    }
+    
+    // Redirect to prevent resubmission
+    wp_redirect(admin_url('post.php?post=' . $post_id . '&action=edit'));
+    exit;
+}
+
+/**
+ * Display transient-based admin notices for regeneration
+ * 
+ * Shows success/warning/error notices based on regeneration results
+ * stored in transients. Deletes transient after displaying.
+ */
+function utm_news_show_regenerate_notice() {
+    global $post;
+    if (!$post || !isset($post->ID)) {
+        return;
+    }
+    
+    $status = get_transient('utm_news_regenerate_success_' . $post->ID);
+    if ($status) {
+        delete_transient('utm_news_regenerate_success_' . $post->ID);
+        
+        if ($status === 'both') {
+            echo '<div class="notice notice-success is-dismissible"><p>Summary and audio regenerated successfully.</p></div>';
+        } elseif ($status === 'summary_only') {
+            echo '<div class="notice notice-warning is-dismissible"><p>Summary regenerated. Audio generation failed - check error log.</p></div>';
+        } elseif ($status === 'audio_only') {
+            echo '<div class="notice notice-warning is-dismissible"><p>Audio regenerated. Summary generation failed - check error log.</p></div>';
+        } else {
+            echo '<div class="notice notice-error is-dismissible"><p>Regeneration failed. Check error log for details.</p></div>';
+        }
+    }
+}
+add_action('admin_notices', 'utm_news_show_regenerate_notice');
+
 // Register admin menu
 add_action('admin_menu', 'utm_news_register_settings_menu');
 
 // Handle form submission (must happen before rendering)
 add_action('admin_init', 'utm_news_save_settings');
+
+// Phase 5: Display summary box and audio player
+add_filter('the_content', 'utm_news_prepend_summary_box', 5);
+add_filter('the_content', 'utm_news_prepend_audio_player', 5);
+
+// Phase 5: Register meta box for manual regenerate
+add_action('add_meta_boxes', 'utm_news_add_regenerate_metabox');
+
+// Phase 5: Handle manual regenerate
+add_action('admin_init', 'utm_news_handle_manual_regenerate');
 
 // Hook for auto-generating AI summaries when posts are published
 add_action('transition_post_status', 'utm_news_on_post_publish', 10, 3);
