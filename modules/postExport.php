@@ -1,4 +1,6 @@
 <?php
+// This file is part of news.utm.my post export to csv feature
+
 function generate_csv() {
     error_log('export function executed'); // Add this line
 

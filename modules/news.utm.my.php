@@ -1,50 +1,10 @@
 <?php
+// Last updated: 22 Dec 2025
+
 // Exit if accessed directly
 if (!defined('ABSPATH')) {
     exit;
 }
-
-// Function to disable post editing if current user is an author and current post status is 'pending review'
-// print hello world with admin notice and show edit block notice if redirected
-add_action('admin_notices', function() {
-    // Show block notice if redirected
-    if (isset($_GET['edit_blocked']) && $_GET['edit_blocked'] == '1') {
-        echo '<div class="notice notice-error is-dismissible"><p>You are not allowed to edit a post while it is pending review.</p></div>';
-    }
-});
-
-// Server-side block: Prevent authors from editing pending posts
-add_action('admin_init', function() {
-    global $pagenow;
-    if ($pagenow === 'post.php' && isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['post'])) {
-        $post_id = intval($_GET['post']);
-        $post = get_post($post_id);
-        if ($post && $post->post_status === 'pending') {
-            $current_user = wp_get_current_user();
-            $is_author_role = in_array('author', (array) $current_user->roles);
-            $is_post_author = ($current_user->ID === (int) $post->post_author);
-            if ($is_author_role || $is_post_author) {
-                // Redirect to posts list with error
-                $redirect_url = admin_url('edit.php?edit_blocked=1');
-                wp_redirect($redirect_url);
-                exit;
-            }
-        }
-    }
-});
-
-// Hide Edit link in post list for authors on pending posts
-add_filter('post_row_actions', function($actions, $post) {
-    if ($post->post_status === 'pending') {
-        $current_user = wp_get_current_user();
-        $is_author_role = in_array('author', (array) $current_user->roles);
-        $is_post_author = ($current_user->ID === (int) $post->post_author);
-        if ($is_author_role || $is_post_author) {
-            unset($actions['edit']);
-        }
-    }
-    return $actions;
-}, 10, 2);
 
 
 // Function to import posts
@@ -102,7 +62,7 @@ function import_utm_news_posts($department_id) {
     return true;
 }
 
-// Add shortcode
+// Add shortcode [utm_news_department] to display latest 3 posts from a specific department
 add_shortcode('utm_news_department', function($atts) {
     // Parse attributes
     $atts = shortcode_atts(array(
@@ -181,10 +141,54 @@ add_shortcode('utm_news_department', function($atts) {
     return $output;
 });
 
-// If domain is not "news.utm.my", return
+/***************************************************************
+    The code after this point will only run on news.utm.my
+***************************************************************/
 if ($_SERVER['HTTP_HOST'] !== 'news.utm.my') {
     return;
 }
+
+// Function to disable post editing if current user is an author and current post status is 'pending review'
+// print hello world with admin notice and show edit block notice if redirected
+add_action('admin_notices', function() {
+    // Show block notice if redirected
+    if (isset($_GET['edit_blocked']) && $_GET['edit_blocked'] == '1') {
+        echo '<div class="notice notice-error is-dismissible"><p>You are not allowed to edit a post while it is pending review.</p></div>';
+    }
+});
+
+// Server-side block: Prevent authors from editing pending posts
+add_action('admin_init', function() {
+    global $pagenow;
+    if ($pagenow === 'post.php' && isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['post'])) {
+        $post_id = intval($_GET['post']);
+        $post = get_post($post_id);
+        if ($post && $post->post_status === 'pending') {
+            $current_user = wp_get_current_user();
+            $is_author_role = in_array('author', (array) $current_user->roles);
+            $is_post_author = ($current_user->ID === (int) $post->post_author);
+            if ($is_author_role || $is_post_author) {
+                // Redirect to posts list with error
+                $redirect_url = admin_url('edit.php?edit_blocked=1');
+                wp_redirect($redirect_url);
+                exit;
+            }
+        }
+    }
+});
+
+// Hide Edit link in post list for authors on pending posts
+add_filter('post_row_actions', function($actions, $post) {
+    if ($post->post_status === 'pending') {
+        $current_user = wp_get_current_user();
+        $is_author_role = in_array('author', (array) $current_user->roles);
+        $is_post_author = ($current_user->ID === (int) $post->post_author);
+        if ($is_author_role || $is_post_author) {
+            unset($actions['edit']);
+        }
+    }
+    return $actions;
+}, 10, 2);
 
 // Only run in admin area
 add_action('admin_init', function() {
@@ -292,4 +296,38 @@ add_shortcode('utm_news_alumni_analytics', function($atts) {
     $output .= '</div>';
 
     return $output;
+});
+
+// Notice to login users that the news submission will be disabled from 15 Dec 2025 to 31 Dec 2025
+// All access to wp-admin/post-new.php will be blocked for all authors during this period
+// This notice cant be dismissed until the period is over
+// This notice will appear starting from now until 31 Dec 2025
+add_action('admin_notices', function() {
+    global $pagenow;
+    $start_date = strtotime('2025-12-22 00:00:00');
+    $end_date = strtotime('2025-12-31 23:59:59');
+    $current_date = current_time('timestamp');
+    $show_notice = false;
+    $block_access = false;
+    $notice_msg = '<div class="notice notice-warning"><p><strong>Notice:</strong> News submission is disabled from 22 Dec 2025 to 31 Dec 2025 for system maintenance. You will not be able to create new posts during this period.</p></div>';
+
+    if ($current_date <= $end_date) {
+        $show_notice = true;
+    }
+
+    if ($current_date >= $start_date && $current_date <= $end_date) {
+        $show_notice = true;
+        $block_access = true;
+    }
+    if ($show_notice) {
+        echo $notice_msg;
+    }
+    // Block access to post-new.php or post.php for authors during the block period
+    if ($block_access && ($pagenow === 'post-new.php' || $pagenow === 'post.php')) {
+        $current_user = wp_get_current_user();
+        $is_author_role = in_array('author', (array) $current_user->roles);
+        if ($is_author_role) {
+            wp_die('<h1>Access Denied</h1><p>News submission is disabled from 22 Dec 2025 to 31 Dec 2025 for system maintenance. You cannot submit news during this period.</p>', 'Access Denied', array('back_link' => true));
+        }
+    }
 });

@@ -11,30 +11,52 @@ add_action('do_feed_atom', 'disable_feeds', 1);
 
 /*
  * Replace UTM phone and support (Updated to work with detection)
+ * FIXED: Using TreeWalker to preserve DOM references for Divi builder compatibility
  */
 add_action('wp_footer', function() {
     ?>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
+        // Skip if Divi builder is active
+        if (window.location.href.indexOf('et_fb=1') !== -1) {
+            return;
+        }
+        
         // Wait a bit for detection to run first
         setTimeout(function() {
-            // Replace specific phone number: 553 3333 (various formats) with 533 3333
-            document.body.innerHTML = document.body.innerHTML.replace(/\b553[ -]?3333\b/g, '533 3333');
-            // Replace 07-553 3333 with 07-533 3333 (specific format)  
-            document.body.innerHTML = document.body.innerHTML.replace(/\b07[ -]?553[ -]?3333\b/g, '07-533 3333');
-            // Replace international format +60 7 553 3333 with +60 7 533 3333
-            document.body.innerHTML = document.body.innerHTML.replace(/\b\+?60[ -]?7[ -]?553[ -]?3333\b/g, '+60 7 533 3333');
-
-            // Replace <a href="mailto:corporate@utm.my">corporate@utm.my</a>
-            document.body.innerHTML = document.body.innerHTML.replace(
-                /<a href="mailto:corporate@utm\.my">corporate@utm\.my<\/a>/gi,
-                '<a href="https://support.utm.my" target="_blank" rel="noopener">support.utm.my</a>'
-            );
-            // Replace <a href="mailto:corporate@utm.my"><span id="et-info-email">corporate@utm.my</span></a>
-            document.body.innerHTML = document.body.innerHTML.replace(
-                /<a href="mailto:corporate@utm\.my"><span id="et-info-email">corporate@utm\.my<\/span><\/a>/gi,
-                '<a href="https://support.utm.my" target="_blank" rel="noopener"><span id="et-info-email">support.utm.my</span></a>'
-            );
+            // Function to replace text in text nodes only (preserves DOM structure)
+            function replaceTextInNode(node) {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    var text = node.nodeValue;
+                    // Replace phone numbers
+                    text = text.replace(/\b553[ -]?3333\b/g, '533 3333');
+                    text = text.replace(/\b07[ -]?553[ -]?3333\b/g, '07-533 3333');
+                    text = text.replace(/\b\+?60[ -]?7[ -]?553[ -]?3333\b/g, '+60 7 533 3333');
+                    node.nodeValue = text;
+                } else if (node.nodeType === Node.ELEMENT_NODE) {
+                    // Handle mailto links for corporate@utm.my
+                    if (node.tagName === 'A' && node.getAttribute('href') === 'mailto:corporate@utm.my') {
+                        node.setAttribute('href', 'https://support.utm.my');
+                        node.setAttribute('target', '_blank');
+                        node.setAttribute('rel', 'noopener');
+                        if (node.textContent === 'corporate@utm.my') {
+                            node.textContent = 'support.utm.my';
+                        }
+                        // Handle span inside link
+                        var span = node.querySelector('span#et-info-email');
+                        if (span && span.textContent === 'corporate@utm.my') {
+                            span.textContent = 'support.utm.my';
+                        }
+                    }
+                    // Recursively process child nodes
+                    for (var i = 0; i < node.childNodes.length; i++) {
+                        replaceTextInNode(node.childNodes[i]);
+                    }
+                }
+            }
+            
+            // Start replacement from body
+            replaceTextInNode(document.body);
         }, 1000); // 1 second delay to allow detection to complete
     });
     </script>

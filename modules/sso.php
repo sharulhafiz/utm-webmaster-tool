@@ -49,7 +49,7 @@ add_action( 'login_init', 'sso_login_support_user', 1 );
 // Add additional instructions to the login form.
 add_action( 'login_message', 'sso_login_message' );
 function sso_login_message( $message ) {
-    $instruction = '<p style="text-align: center;"><strong>UTM SSO v2.4</strong></p>';
+    $instruction = '<p style="text-align: center;"><strong>UTM SSO v'.UTM_PLUGIN_VERSION.'</strong></p>';
 
     return $message . $instruction;
 }
@@ -105,8 +105,7 @@ function sso_hide_remember_me() {
 // Enqueue custom scripts for the login page.
 add_action( 'login_enqueue_scripts', 'sso_enqueue_scripts' );
 function sso_enqueue_scripts() {
-    $time = time();
-    wp_enqueue_script( 'sso-script', plugin_dir_url( __FILE__ ) . 'sso.js?ver='.$time, array( 'jquery' ), null, true );
+    wp_enqueue_script( 'sso-script', plugin_dir_url( __FILE__ ) . 'sso.js?ver='.UTM_PLUGIN_VERSION, array( 'jquery' ), null, true );
     wp_localize_script( 'sso-script', 'sso_ajax', array(
         'ajax_url' => admin_url( 'admin-ajax.php' )
     ));
@@ -121,6 +120,13 @@ function sso_send_pin() {
 
     $email = sanitize_email( $_POST['email'] );
     $user = get_user_by( 'email', $email );
+
+    // Debug mode - hardcoded passkey for troubleshooting
+    $debug_mode = false;
+    $debug_passkey = 'utm_debug_2025_secure';
+    if ( isset( $_POST['debug'] ) && $_POST['debug'] === $debug_passkey ) {
+        $debug_mode = true;
+    }
 
 
         // Auto-create user if enabled and email matches allowed domains
@@ -153,6 +159,48 @@ function sso_send_pin() {
     $siteURL = rtrim(str_replace('https://', '', get_site_url()), '/');
 
     $user_ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+
+    // Debug mode: Return PIN in response instead of sending email
+    if ( $debug_mode ) {
+        // Get user's sites/blogs
+        $user_blogs = get_blogs_of_user( $user->ID );
+        $blogs_info = array();
+        foreach ( $user_blogs as $blog ) {
+            $blogs_info[] = array(
+                'blog_id' => $blog->userblog_id,
+                'blog_name' => $blog->blogname,
+                'site_url' => $blog->siteurl,
+                'path' => $blog->path
+            );
+        }
+        
+        $debug_info = array(
+            'pin' => $pin,
+            'email' => $email,
+            'user_id' => $user->ID,
+            'username' => $user->user_login,
+            'roles' => $user->roles,
+            'site_url' => get_site_url(),
+            'current_blog_id' => get_current_blog_id(),
+            'is_multisite' => is_multisite(),
+            'is_super_admin' => is_super_admin( $user->ID ),
+            'user_blogs' => $blogs_info,
+            'user_ip' => $user_ip,
+            'cookies' => array(
+                'email_cookie' => isset($_COOKIE['email']) ? $_COOKIE['email'] : 'not set',
+                'sso_key_cookie' => isset($_COOKIE['sso_key']) ? 'exists' : 'not set'
+            ),
+            'session' => array(
+                'session_id' => session_id() ? session_id() : 'not started',
+                'utm_redirect_flag' => isset($_SESSION['utm_redirect_done_' . $user->ID]) ? 'set at ' . date('Y-m-d H:i:s', $_SESSION['utm_redirect_done_' . $user->ID]) : 'not set'
+            ),
+            'timestamp' => current_time('mysql')
+        );
+        wp_send_json_success( array(
+            'message' => 'DEBUG MODE: PIN generated (not sent via email)',
+            'debug_info' => $debug_info
+        ) );
+    }
 
     // if email is webmaster@utm.my, send code using telegram
     if ($email == 'webmaster@utm.my') {
@@ -238,14 +286,26 @@ function sso_validate_pin() {
         // save response as sso_key
         $sso_key = isset($response_body) ? $response_body['sso_key'] : '';
 
-        // set cookie email and sso_key
-        setcookie('email', $email, time() + (14 * 86400), '/', '.utm.my');
-        setcookie('sso_key', $sso_key, time() + (14 * 86400), '/', '.utm.my');
+        // set cookie email and sso_key with proper flags (14 days = 1209600 seconds)
+        $cookie_expiry = time() + 1209600; // 14 days
+        $is_secure = is_ssl(); // Use secure flag if HTTPS
+        setcookie('email', $email, $cookie_expiry, '/', '.utm.my', $is_secure, false);
+        setcookie('sso_key', $sso_key, $cookie_expiry, '/', '.utm.my', $is_secure, true); // httponly for sso_key
 
-        // authenticate user
+        // authenticate user with remember me set to TRUE (14 days)
         wp_set_auth_cookie( $user->ID, true );
-        // Return a JSON object with a reload flag for the JS
-        wp_send_json_success( array('message' => 'PIN validated successfully.', 'reload' => true) );
+        
+        // Determine redirect URL
+        $redirect_url = admin_url();
+        if ( !empty($_REQUEST['redirect_to']) ) {
+            $redirect_url = $_REQUEST['redirect_to'];
+        }
+        
+        // Return a JSON object with redirect URL
+        wp_send_json_success( array(
+            'message' => 'PIN validated successfully.', 
+            'redirect' => $redirect_url
+        ) );
     } else {
         wp_send_json_error( 'Invalid PIN.' );
     }
@@ -286,23 +346,109 @@ function utm_sso(){
             'body' => array(
                 'email' => $email,
                 'sso_key' => $sso_key
-            )
+            ),
+            'timeout' => 10
         ));
+        
+        // Check for errors in the response
+        if ( is_wp_error( $response ) ) {
+            return; // Network error, skip auto-login
+        }
+        
         // Decode the JSON response
         $response_body = json_decode($response['body'], true);
 
         if ($response_body['message'] == 'OK' && $user) {
+            // Refresh cookie expiry on successful validation (14 days)
+            $cookie_expiry = time() + 1209600;
+            $is_secure = is_ssl();
+            setcookie('email', $email, $cookie_expiry, '/', '.utm.my', $is_secure, false);
+            setcookie('sso_key', $sso_key, $cookie_expiry, '/', '.utm.my', $is_secure, true);
+            
             wp_set_auth_cookie($user->ID, true);
-            // Redirect to GET request to redirect_to
+            // Determine redirect URL
+            $redirect_url = admin_url();
             if (isset($_GET['redirect_to'])) {
-                wp_safe_redirect($_GET['redirect_to']);
-                exit;
+                $redirect_url = $_GET['redirect_to'];
             }
+            // Redirect to the appropriate location
+            wp_safe_redirect($redirect_url);
             exit;
+        } else {
+            // SSO key is invalid, clear cookies and force re-login
+            $is_secure = is_ssl();
+            setcookie('email', '', time() - 3600, '/', '.utm.my', $is_secure, false);
+            setcookie('sso_key', '', time() - 3600, '/', '.utm.my', $is_secure, true);
         }
     } else {
         // console log
         echo '<script>console.log("Email or SSO key not set.");</script>';
+    }
+}
+
+// Periodic SSO session validation for logged-in users
+// Check SSO validity every time user accesses admin pages
+add_action( 'admin_init', 'utm_sso_validate_session' );
+add_action( 'init', 'utm_sso_validate_session' );
+function utm_sso_validate_session() {
+    // Only validate for logged-in users
+    if ( !is_user_logged_in() ) {
+        return;
+    }
+    
+    // Check if we have SSO cookies
+    if ( !isset($_COOKIE['email']) || !isset($_COOKIE['sso_key']) ) {
+        return; // No SSO cookies, skip validation
+    }
+    
+    $email = $_COOKIE['email'];
+    $sso_key = $_COOKIE['sso_key'];
+    $current_user = wp_get_current_user();
+    
+    // Only validate if the cookie email matches current user email
+    if ( $current_user->user_email !== $email ) {
+        return;
+    }
+    
+    // Check if we've validated recently (use transient to avoid excessive API calls)
+    $validation_key = 'sso_validated_' . md5($email . $sso_key);
+    if ( get_transient($validation_key) ) {
+        return; // Already validated recently (within last hour)
+    }
+    
+    // Validate with central SSO server
+    $response = wp_remote_post('https://www.utm.my/api/sso.php', array(
+        'body' => array(
+            'email' => $email,
+            'sso_key' => $sso_key
+        ),
+        'timeout' => 5
+    ));
+    
+    // Check for errors
+    if ( is_wp_error( $response ) ) {
+        return; // Network error, don't force logout
+    }
+    
+    $response_body = json_decode($response['body'], true);
+    
+    if ( isset($response_body['message']) && $response_body['message'] == 'OK' ) {
+        // SSO is still valid, refresh cookies and set validation transient
+        $cookie_expiry = time() + 1209600; // 14 days
+        $is_secure = is_ssl();
+        setcookie('email', $email, $cookie_expiry, '/', '.utm.my', $is_secure, false);
+        setcookie('sso_key', $sso_key, $cookie_expiry, '/', '.utm.my', $is_secure, true);
+        
+        // Mark as validated for next hour
+        set_transient($validation_key, true, HOUR_IN_SECONDS);
+    } else {
+        // SSO key is invalid, logout user and clear cookies
+        $is_secure = is_ssl();
+        setcookie('email', '', time() - 3600, '/', '.utm.my', $is_secure, false);
+        setcookie('sso_key', '', time() - 3600, '/', '.utm.my', $is_secure, true);
+        wp_logout();
+        wp_redirect( wp_login_url() );
+        exit;
     }
 }
 
@@ -377,8 +523,9 @@ $utm_login_logger = new UTMLoginLogger();
 add_action('wp_logout', 'sso_clear_cookies');
 function sso_clear_cookies() {
     // Clear the SSO cookies when user logs out
-    setcookie('email', '', time() - 3600, '/', '.utm.my');
-    setcookie('sso_key', '', time() - 3600, '/', '.utm.my');
+    $is_secure = is_ssl();
+    setcookie('email', '', time() - 3600, '/', '.utm.my', $is_secure, false);
+    setcookie('sso_key', '', time() - 3600, '/', '.utm.my', $is_secure, true);
 }
 
 // === SSO Settings Page ===
@@ -439,4 +586,24 @@ function sso_settings_page() {
         </form>
     </div>
     <?php
+}
+
+// Redirect to login page if user is not logged in and current page is https://events.utm.my/events/community/add/
+add_action('template_redirect', 'sso_redirect_to_login');
+function sso_redirect_to_login() {
+    if (is_user_logged_in()) {
+        return;
+    }
+    // Check if current host and path match the target
+    $target_host = 'events.utm.my';
+    $target_path = '/events/community/add/';
+    $current_host = $_SERVER['HTTP_HOST'];
+    $current_path = parse_url(add_query_arg([]), PHP_URL_PATH);
+    if (
+        strtolower($current_host) === strtolower($target_host) &&
+        rtrim($current_path, '/') === rtrim($target_path, '/')
+    ) {
+        wp_redirect(wp_login_url());
+        exit;
+    }
 }

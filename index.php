@@ -6,7 +6,7 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
-Version: 5.37
+Version: 5.38
 */
 
 // Exit if accessed directly for security.
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define basic constants. These are fine as they are static.
-define( 'UTM_PLUGIN_VERSION', '5.37' );
+define( 'UTM_PLUGIN_VERSION', '5.38' );
 define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -61,7 +61,52 @@ register_activation_hook( __FILE__, 'utm_plugin_activation_hook' );
  */
 function utm_load_modules() {
     $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
-    $modules = array('analytics', 'antispam', 'backup', 'brokenlink', 'bulk-add-user', 'bulkdeleteuser', 'cache-monitor', 'chatbot', 'content-visibility-shortcodes', 'delete_et_cache_divi', 'disableplugin', 'events', 'fixuploadpath', 'fixuserrole', 'formidableforms', 'googleanalytics', 'heartbeat', 'listblogs', 'loginlogger', 'mail', 'migrate-upload', 'multisite-api', 'multisite-statistics', 'news.utm.my', 'people.utm.my', 'performance-patch', 'popup-ads', 'postExport', 'protected-content', 'registrar', 'seo', 'shortcodes', 'sso', 'staffapi', 'support.utm.my', 'timezone', 'updatenetworkadminemail', 'usermeta', 'utmlenses', 'utm-news-import');
+    $modules = array(
+        'analytics',
+        'antispam',
+        'backup',
+        'brokenlink',
+        'bulk-add-user',
+        'bulkdeleteuser',
+        'cache-monitor',
+        'chatbot',
+        'content-visibility-shortcodes',
+        'delete_et_cache_divi',
+        'disableplugin',
+        'debug',
+        'embed_googledocs',
+        'events',
+        'fixuploadpath',
+        'fixuserrole',
+        'formidableforms',
+        'function',
+        'gdocsImport',
+        'googleanalytics',
+        'heartbeat',
+        'listblogs',
+        'loginlogger',
+        'mail',
+        'migrate-upload',
+        'multisite-api',
+        'multisite-statistics',
+        'news.utm.my',
+        'people.utm.my',
+        'performance-patch',
+        'popup-ads',
+        'postExport',
+        'protected-content',
+        'registrar',
+        'seo',
+        'shortcodes',
+        'sso',
+        'staffapi',
+        'support.utm.my',
+        'timezone',
+        'updatenetworkadminemail',
+        'usermeta',
+        'utmlenses',
+        'utm-news-import'
+    );
 
     // This is still using glob(), but a better long-term solution is a static array.
     // However, moving it into a function is already an improvement.
