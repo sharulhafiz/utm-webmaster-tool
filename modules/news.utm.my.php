@@ -491,6 +491,9 @@ function utm_news_generate_ai_summary($post_id, $force = false) {
     // Save summary to post meta
     update_post_meta($post_id, '_ai_summary', $summary);
     
+    // Generate TTS audio
+    utm_news_generate_tts_audio($post_id);
+    
     return true;
 }
 
@@ -579,6 +582,196 @@ function utm_news_call_openai_api($prompt, $language) {
     }
     
     return $data['choices'][0]['message']['content'];
+}
+
+/**
+ * Generate TTS audio from summary
+ * 
+ * Coordinator function for text-to-speech generation.
+ * Creates audio from the saved AI summary and attaches to post.
+ * Respects existing audio unless force=true.
+ * 
+ * @param int  $post_id Post ID to generate audio for
+ * @param bool $force   Force regeneration even if audio exists
+ * @return bool True if audio generated/updated, false otherwise
+ */
+function utm_news_generate_tts_audio($post_id, $force = false) {
+    // Check if audio already exists and force is false
+    if (!$force) {
+        $existing_audio_id = get_post_meta($post_id, '_audio_attachment_id', true);
+        if ($existing_audio_id) {
+            return false; // Early return - audio already exists
+        }
+    }
+    
+    // Get ElevenLabs API key from options
+    $api_key = get_option('utm_news_elevenlabs_key');
+    if (empty($api_key)) {
+        utm_news_log_error("ElevenLabs API key is not configured. Cannot generate audio for post ID: $post_id");
+        return false;
+    }
+    
+    // Get summary from post meta
+    $summary = get_post_meta($post_id, '_ai_summary', true);
+    if (empty($summary)) {
+        utm_news_log_error("No AI summary found for post ID: $post_id. Cannot generate audio.");
+        return false;
+    }
+    
+    // Get language using existing function
+    $language = utm_news_get_summary_language($post_id);
+    
+    // Call ElevenLabs API
+    $audio_data = utm_news_call_elevenlabs_api($summary, $language, $api_key);
+    
+    if ($audio_data === false) {
+        utm_news_log_error("Failed to generate audio from ElevenLabs API for post ID: $post_id");
+        return false;
+    }
+    
+    // Save audio and get attachment ID
+    $attachment_id = utm_news_save_audio_to_media($audio_data, $post_id, "post-{$post_id}-audio.mp3");
+    
+    if ($attachment_id === false) {
+        utm_news_log_error("Failed to save audio to media library for post ID: $post_id");
+        return false;
+    }
+    
+    // Save attachment ID to post meta
+    update_post_meta($post_id, '_audio_attachment_id', $attachment_id);
+    
+    return true;
+}
+
+/**
+ * Call ElevenLabs Text-to-Speech API
+ * 
+ * Makes HTTP request to ElevenLabs TTS endpoint.
+ * Selects appropriate voice based on language.
+ * 
+ * @param string $text     Text to convert to speech
+ * @param string $language Language code: 'ms' or 'en'
+ * @param string $api_key  ElevenLabs API key
+ * @return string|bool Binary audio data on success, false on error
+ */
+function utm_news_call_elevenlabs_api($text, $language, $api_key) {
+    // Select voice ID based on language
+    if ($language === 'ms') {
+        // Malay voice
+        $voice_id = 'pMsXgVXv3BLzUgSXRplE';
+    } else {
+        // English voice (Rachel - clear female voice)
+        $voice_id = '21m00Tcm4TlvDq8ikWAM';
+    }
+    
+    // Prepare API request body
+    $body = array(
+        'text' => $text,
+        'model_id' => 'eleven_multilingual_v2',
+        'voice_settings' => array(
+            'stability' => 0.5,
+            'similarity_boost' => 0.75
+        )
+    );
+    
+    // Prepare API request
+    $args = array(
+        'headers' => array(
+            'Content-Type' => 'application/json',
+            'xi-api-key' => $api_key
+        ),
+        'body' => wp_json_encode($body),
+        'timeout' => 60
+    );
+    
+    // Make API call
+    $response = wp_remote_post(
+        "https://api.elevenlabs.io/v1/text-to-speech/{$voice_id}",
+        $args
+    );
+    
+    // Check for errors
+    if (is_wp_error($response)) {
+        utm_news_log_error("ElevenLabs API request failed: " . $response->get_error_message());
+        return false;
+    }
+    
+    // Check response code
+    $response_code = wp_remote_retrieve_response_code($response);
+    if ($response_code !== 200) {
+        $body_text = wp_remote_retrieve_body($response);
+        utm_news_log_error("ElevenLabs API returned status $response_code. Response: $body_text");
+        return false;
+    }
+    
+    // Get audio data
+    $audio_data = wp_remote_retrieve_body($response);
+    
+    if (empty($audio_data)) {
+        utm_news_log_error("ElevenLabs API returned empty audio data");
+        return false;
+    }
+    
+    return $audio_data;
+}
+
+/**
+ * Save audio file to media library
+ * 
+ * Saves binary audio data as a temporary file and uses
+ * media_handle_sideload to attach it to the post.
+ * Cleans up temporary files after upload.
+ * 
+ * @param string $audio_data Binary audio data
+ * @param int    $post_id    Post ID to attach audio to
+ * @param string $filename   Filename for the audio (e.g., 'post-123-audio.mp3')
+ * @return int|bool Attachment ID on success, false on error
+ */
+function utm_news_save_audio_to_media($audio_data, $post_id, $filename) {
+    // Require WordPress file functions
+    require_once(ABSPATH . 'wp-admin/includes/file.php');
+    require_once(ABSPATH . 'wp-admin/includes/media.php');
+    require_once(ABSPATH . 'wp-admin/includes/image.php');
+    
+    // Get upload directory
+    $upload_dir = wp_upload_dir();
+    if (!isset($upload_dir['path'])) {
+        utm_news_log_error("Could not determine upload directory");
+        return false;
+    }
+    
+    // Create temp file path
+    $tmp_file = $upload_dir['path'] . '/' . $filename;
+    
+    // Write audio data to temp file
+    $write_result = @file_put_contents($tmp_file, $audio_data);
+    if ($write_result === false) {
+        utm_news_log_error("Failed to write audio file to disk at $tmp_file");
+        return false;
+    }
+    
+    // Create file array for media_handle_sideload
+    $file_array = array(
+        'name' => $filename,
+        'tmp_name' => $tmp_file,
+        'type' => 'audio/mpeg'
+    );
+    
+    // Use media_handle_sideload to attach file
+    $attachment_id = media_handle_sideload($file_array, $post_id);
+    
+    // Check for errors from media_handle_sideload
+    if (is_wp_error($attachment_id)) {
+        utm_news_log_error("media_handle_sideload failed: " . $attachment_id->get_error_message());
+        // Clean up temp file
+        @unlink($tmp_file);
+        return false;
+    }
+    
+    // Clean up temp file
+    @unlink($tmp_file);
+    
+    return $attachment_id;
 }
 
 // Register admin menu
