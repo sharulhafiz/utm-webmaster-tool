@@ -408,11 +408,187 @@ function utm_news_get_summary_language($post_id) {
     return 'en';
 }
 
+/**
+ * Hook callback for post status transitions
+ * 
+ * Triggered when a post transitions to 'publish' status.
+ * Automatically generates AI summary on first publish.
+ * 
+ * @param string  $new_status New post status
+ * @param string  $old_status Old post status
+ * @param WP_Post $post       Post object
+ */
+function utm_news_on_post_publish($new_status, $old_status, $post) {
+    // Only process when transitioning TO 'publish' status
+    if ($new_status !== 'publish') {
+        return;
+    }
+    
+    // Only process for 'post' post type (not pages, attachments, etc.)
+    if ($post->post_type !== 'post') {
+        return;
+    }
+    
+    // Skip if this is an update (old_status was already 'publish')
+    if ($old_status === 'publish') {
+        return;
+    }
+    
+    // Generate AI summary for this post
+    utm_news_generate_ai_summary($post->ID);
+}
+
+/**
+ * Generate AI summary for a post
+ * 
+ * Coordinator function that handles summary generation.
+ * Respects existing summary unless force=true.
+ * 
+ * @param int  $post_id Post ID to generate summary for
+ * @param bool $force   Force regeneration even if summary exists
+ * @return bool True if summary generated/updated, false otherwise
+ */
+function utm_news_generate_ai_summary($post_id, $force = false) {
+    // Check if summary already exists and force is false
+    if (!$force) {
+        $existing_summary = get_post_meta($post_id, '_ai_summary', true);
+        if ($existing_summary) {
+            return false; // Early return - summary already exists
+        }
+    }
+    
+    // Get the post
+    $post = get_post($post_id);
+    if (!$post) {
+        utm_news_log_error("Post not found for ID: $post_id");
+        return false;
+    }
+    
+    // Get OpenAI API key from options
+    $api_key = get_option('utm_news_openai_key');
+    if (empty($api_key)) {
+        utm_news_log_error("OpenAI API key is not configured. Cannot generate summary for post ID: $post_id");
+        return false;
+    }
+    
+    // Get post content and language
+    $language = utm_news_get_summary_language($post_id);
+    
+    // Strip HTML tags and shortcodes from content
+    $content = wp_strip_all_tags($post->post_content);
+    
+    // Build prompt from post title + content
+    $prompt = "Title: " . $post->post_title . "\n\nContent: " . $content;
+    
+    // Call OpenAI API
+    $summary = utm_news_call_openai_api($prompt, $language);
+    
+    if ($summary === false) {
+        utm_news_log_error("Failed to generate summary for post ID: $post_id");
+        return false;
+    }
+    
+    // Save summary to post meta
+    update_post_meta($post_id, '_ai_summary', $summary);
+    
+    return true;
+}
+
+/**
+ * Call OpenAI API to generate summary
+ * 
+ * Makes HTTP request to OpenAI's chat completions endpoint.
+ * Uses gpt-4o-mini model with temperature 0.7 and max 150 tokens.
+ * 
+ * @param string $prompt   The prompt text (post title + content)
+ * @param string $language Language code: 'ms' or 'en'
+ * @return string|bool Summary text on success, false on error
+ */
+function utm_news_call_openai_api($prompt, $language) {
+    // Get API key
+    $api_key = get_option('utm_news_openai_key');
+    if (empty($api_key)) {
+        utm_news_log_error("OpenAI API key is empty in utm_news_call_openai_api");
+        return false;
+    }
+    
+    // Build system prompt based on language
+    if ($language === 'ms') {
+        $system_prompt = "You are a helpful assistant. Summarize the following news article in 2-3 sentences in Malay language.";
+    } else {
+        $system_prompt = "You are a helpful assistant. Summarize the following news article in 2-3 sentences in English.";
+    }
+    
+    // Prepare API request body
+    $body = array(
+        'model' => 'gpt-4o-mini',
+        'messages' => array(
+            array(
+                'role' => 'system',
+                'content' => $system_prompt
+            ),
+            array(
+                'role' => 'user',
+                'content' => $prompt
+            )
+        ),
+        'temperature' => 0.7,
+        'max_tokens' => 150
+    );
+    
+    // Prepare API request
+    $args = array(
+        'headers' => array(
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $api_key
+        ),
+        'body' => wp_json_encode($body),
+        'timeout' => 30
+    );
+    
+    // Make API call
+    $response = wp_remote_post('https://api.openai.com/v1/chat/completions', $args);
+    
+    // Check for errors
+    if (is_wp_error($response)) {
+        utm_news_log_error("OpenAI API request failed: " . $response->get_error_message());
+        return false;
+    }
+    
+    // Check response code
+    $response_code = wp_remote_retrieve_response_code($response);
+    if ($response_code !== 200) {
+        $body_text = wp_remote_retrieve_body($response);
+        utm_news_log_error("OpenAI API returned status $response_code. Response: $body_text");
+        return false;
+    }
+    
+    // Parse JSON response
+    $body_text = wp_remote_retrieve_body($response);
+    $data = json_decode($body_text, true);
+    
+    if ($data === null) {
+        utm_news_log_error("OpenAI API response is not valid JSON: $body_text");
+        return false;
+    }
+    
+    // Extract summary from response
+    if (!isset($data['choices'][0]['message']['content'])) {
+        utm_news_log_error("OpenAI API response missing summary content. Response: " . wp_json_encode($data));
+        return false;
+    }
+    
+    return $data['choices'][0]['message']['content'];
+}
+
 // Register admin menu
 add_action('admin_menu', 'utm_news_register_settings_menu');
 
 // Handle form submission (must happen before rendering)
 add_action('admin_init', 'utm_news_save_settings');
+
+// Hook for auto-generating AI summaries when posts are published
+add_action('transition_post_status', 'utm_news_on_post_publish', 10, 3);
 
 // Function to disable post editing if current user is an author and current post status is 'pending review'
 // print hello world with admin notice and show edit block notice if redirected
