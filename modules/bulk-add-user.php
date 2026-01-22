@@ -42,6 +42,12 @@ function utm_newshub_bulk_add_user_page() {
                     // Add the user to the current site with the desired role
                     add_user_to_blog(get_current_blog_id(), $user_id, 'administrator');
                     echo '<p>User ' . $username . ' (' . $email . ') added to the site successfully</p>';
+                    // Email the user to notify they have been added with custom message
+                    wp_mail(
+                        $email,
+                        'You have been added as an Administrator',
+                        'Hello, you have been added as an Administrator to the site ' . get_bloginfo('name') . '. Click here to log in using your email: ' . wp_login_url()
+                    );
                 } else {
                     echo '<p>User ' . $username . ' (' . $email . ') already exists on this site</p>';
                 }

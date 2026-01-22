@@ -8,8 +8,15 @@ function generate_csv() {
         $yearRangeStart = $_POST['start_year'];
         $yearRangeEnd = $_POST['end_year'];
     } else {
+        $earliestYearInPosts = get_posts(array(
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'posts_per_page' => 1,
+            'orderby' => 'date',
+            'order' => 'ASC',
+        ));
         $currentYear = date('Y');
-        $yearRangeStart = $currentYear - 3;
+        $yearRangeStart = $earliestYearInPosts ? date('Y', strtotime($earliestYearInPosts[0]->post_date)) : $currentYear - 3;
         $yearRangeEnd = $currentYear;
     }
 
@@ -29,10 +36,11 @@ function generate_csv() {
     $posts = get_posts($args);
     $output = '';
     if ($posts) {
-        $output .= 'ID,Title,Category,Content,Date,Department,URL' . "\n";
+        $output .= 'ID,Title,Author,Category,Content,Date,Department,URL' . "\n";
         foreach ($posts as $post) {
             $id = str_replace('"', '""', $post->ID);
             $title = str_replace('"', '""', $post->post_title);
+            $author = str_replace('"', '""', get_the_author_meta('display_name', $post->post_author));
             $categories = get_the_category($post->ID);
             $category = $categories ? str_replace('"', '""', $categories[0]->name) : '';
             $content = str_replace('"', '""', $post->post_content);
@@ -49,7 +57,7 @@ function generate_csv() {
 
             $url = get_permalink($post->ID);
 
-            $output .= "\"$id\",\"$title\",\"$category\",\"$content\",\"$date\",\"$department_list\",\"$url\"\n";
+            $output .= "\"$id\",\"$title\",\"$author\",\"$category\",\"$content\",\"$date\",\"$department_list\",\"$url\"\n";
         }
     }
 

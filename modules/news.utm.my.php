@@ -204,7 +204,7 @@ function utm_news_settings_page() {
             <table class="form-table">
                 <tr>
                     <th scope="row">
-                        <label for="utm_news_openai_key">OpenAI API Key</label>
+                        <label for="utm_news_openai_key">OpenRouter API Key</label>
                     </th>
                     <td>
                         <input 
@@ -214,7 +214,7 @@ function utm_news_settings_page() {
                             value="<?php echo esc_attr(get_option('utm_news_openai_key')); ?>" 
                             class="regular-text"
                         />
-                        <p class="description">Enter your OpenAI API key for text processing.</p>
+                        <p class="description">Enter your OpenRouter API key for text summaries (model: google-vertex).</p>
                     </td>
                 </tr>
                 
@@ -245,6 +245,25 @@ function utm_news_settings_page() {
                             <option value="en" <?php selected(get_option('utm_news_language_pref'), 'en'); ?>>English</option>
                         </select>
                         <p class="description">Choose language preference or auto-detect to determine automatically.</p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="utm_news_ai_enabled">AI Features</label>
+                    </th>
+                    <td>
+                        <label>
+                            <input 
+                                type="checkbox" 
+                                id="utm_news_ai_enabled" 
+                                name="utm_news_ai_enabled" 
+                                value="1" 
+                                <?php checked(get_option('utm_news_ai_enabled', '0'), '1'); ?>
+                            />
+                            Enable AI summary and audio generation
+                        </label>
+                        <p class="description">Uncheck to disable automatic AI summary and audio generation for new posts.</p>
                     </td>
                 </tr>
             </table>
@@ -297,6 +316,10 @@ function utm_news_save_settings() {
             update_option('utm_news_language_pref', $language_pref);
         }
     }
+    
+    // Save AI enabled toggle
+    $ai_enabled = isset($_POST['utm_news_ai_enabled']) ? '1' : '0';
+    update_option('utm_news_ai_enabled', $ai_enabled);
     
     add_settings_error('utm_news_settings', 'settings_updated', 'Settings saved successfully.', 'success');
 }
@@ -419,6 +442,11 @@ function utm_news_get_summary_language($post_id) {
  * @param WP_Post $post       Post object
  */
 function utm_news_on_post_publish($new_status, $old_status, $post) {
+    // Check if AI features are enabled
+    if (get_option('utm_news_ai_enabled', '0') !== '1') {
+        return;
+    }
+    
     // Only process when transitioning TO 'publish' status
     if ($new_status !== 'publish') {
         return;
@@ -449,14 +477,6 @@ function utm_news_on_post_publish($new_status, $old_status, $post) {
  * @return bool True if summary generated/updated, false otherwise
  */
 function utm_news_generate_ai_summary($post_id, $force = false) {
-    // Check if summary already exists and force is false
-    if (!$force) {
-        $existing_summary = get_post_meta($post_id, '_ai_summary', true);
-        if ($existing_summary) {
-            return false; // Early return - summary already exists
-        }
-    }
-    
     // Get the post
     $post = get_post($post_id);
     if (!$post) {
@@ -464,10 +484,18 @@ function utm_news_generate_ai_summary($post_id, $force = false) {
         return false;
     }
     
-    // Get OpenAI API key from options
+    // Check if excerpt already exists and force is false
+    if (!$force) {
+        $existing_excerpt = trim($post->post_excerpt);
+        if (!empty($existing_excerpt)) {
+            return false; // Early return - excerpt already exists
+        }
+    }
+    
+    // Get OpenRouter API key from options (stored in utm_news_openai_key)
     $api_key = get_option('utm_news_openai_key');
     if (empty($api_key)) {
-        utm_news_log_error("OpenAI API key is not configured. Cannot generate summary for post ID: $post_id");
+        utm_news_log_error("OpenRouter API key is not configured. Cannot generate summary for post ID: $post_id");
         return false;
     }
     
@@ -488,8 +516,11 @@ function utm_news_generate_ai_summary($post_id, $force = false) {
         return false;
     }
     
-    // Save summary to post meta
-    update_post_meta($post_id, '_ai_summary', $summary);
+    // Save summary to post excerpt
+    wp_update_post(array(
+        'ID' => $post_id,
+        'post_excerpt' => $summary
+    ));
     
     // Generate TTS audio
     utm_news_generate_tts_audio($post_id);
@@ -498,47 +529,55 @@ function utm_news_generate_ai_summary($post_id, $force = false) {
 }
 
 /**
- * Call OpenAI API to generate summary
+ * Call OpenRouter API to generate summary
  * 
- * Makes HTTP request to OpenAI's chat completions endpoint.
- * Uses gpt-4o-mini model with temperature 0.7 and max 150 tokens.
+ * Makes HTTP request to OpenRouter's chat completions endpoint.
+ * Uses google-vertex model with temperature 0.7 and max 150 tokens.
  * 
  * @param string $prompt   The prompt text (post title + content)
  * @param string $language Language code: 'ms' or 'en'
  * @return string|bool Summary text on success, false on error
  */
 function utm_news_call_openai_api($prompt, $language) {
-    // Get API key
+    // NOTE: This function now uses OpenRouter's chat completions endpoint
+    // and the `google-vertex` model for text summaries. The API key is
+    // stored in option `utm_news_openai_key` (can be an OpenRouter key).
+
+    // Get API key (OpenRouter)
     $api_key = get_option('utm_news_openai_key');
     if (empty($api_key)) {
-        utm_news_log_error("OpenAI API key is empty in utm_news_call_openai_api");
+        utm_news_log_error("OpenRouter API key is empty in utm_news_call_openai_api");
         return false;
     }
-    
+
     // Build system prompt based on language
     if ($language === 'ms') {
         $system_prompt = "You are a helpful assistant. Summarize the following news article in 2-3 sentences in Malay language.";
     } else {
         $system_prompt = "You are a helpful assistant. Summarize the following news article in 2-3 sentences in English.";
     }
-    
-    // Prepare API request body
+
+    // Prepare API request body for OpenRouter using Gemini message format
     $body = array(
-        'model' => 'gpt-4o-mini',
+        'model' => 'google/gemini-2.5-flash-lite',
         'messages' => array(
             array(
                 'role' => 'system',
-                'content' => $system_prompt
+                'content' => array(
+                    array('type' => 'text', 'text' => $system_prompt)
+                )
             ),
             array(
                 'role' => 'user',
-                'content' => $prompt
+                'content' => array(
+                    array('type' => 'text', 'text' => $prompt)
+                )
             )
         ),
         'temperature' => 0.7,
         'max_tokens' => 150
     );
-    
+
     // Prepare API request
     $args = array(
         'headers' => array(
@@ -548,40 +587,71 @@ function utm_news_call_openai_api($prompt, $language) {
         'body' => wp_json_encode($body),
         'timeout' => 30
     );
-    
-    // Make API call
-    $response = wp_remote_post('https://api.openai.com/v1/chat/completions', $args);
-    
+
+    // Make API call to OpenRouter (matching curl example)
+    $response = wp_remote_post('https://openrouter.ai/api/v1/chat/completions', $args);
+
     // Check for errors
     if (is_wp_error($response)) {
-        utm_news_log_error("OpenAI API request failed: " . $response->get_error_message());
+        utm_news_log_error("OpenRouter API request failed: " . $response->get_error_message());
         return false;
     }
-    
+
     // Check response code
     $response_code = wp_remote_retrieve_response_code($response);
-    if ($response_code !== 200) {
+    if ($response_code < 200 || $response_code >= 300) {
         $body_text = wp_remote_retrieve_body($response);
-        utm_news_log_error("OpenAI API returned status $response_code. Response: $body_text");
+        utm_news_log_error("OpenRouter API returned status $response_code. Response: $body_text");
         return false;
     }
-    
+
     // Parse JSON response
     $body_text = wp_remote_retrieve_body($response);
     $data = json_decode($body_text, true);
-    
+
     if ($data === null) {
-        utm_news_log_error("OpenAI API response is not valid JSON: $body_text");
+        utm_news_log_error("OpenRouter API response is not valid JSON: $body_text");
         return false;
     }
-    
-    // Extract summary from response
-    if (!isset($data['choices'][0]['message']['content'])) {
-        utm_news_log_error("OpenAI API response missing summary content. Response: " . wp_json_encode($data));
-        return false;
+
+    // Extract summary from response. Support multiple possible schemas.
+    // 1) choices[0].message.content => may be string or array of parts
+    if (isset($data['choices'][0]['message']['content'])) {
+        $content = $data['choices'][0]['message']['content'];
+        if (is_string($content)) {
+            return $content;
+        }
+        if (is_array($content)) {
+            // If content is an array of {type,text} objects, concatenate text fields
+            $collected = '';
+            foreach ($content as $item) {
+                if (is_array($item) && isset($item['text'])) {
+                    $collected .= $item['text'];
+                } elseif (is_string($item)) {
+                    $collected .= $item;
+                }
+            }
+            if (!empty($collected)) {
+                return $collected;
+            }
+            // sometimes the content may be nested further
+            return wp_json_encode($content);
+        }
     }
-    
-    return $data['choices'][0]['message']['content'];
+
+    // 2) Some responses use choices[0].output or choices[0].text or output_text
+    if (isset($data['choices'][0]['output'])) {
+        return is_string($data['choices'][0]['output']) ? $data['choices'][0]['output'] : wp_json_encode($data['choices'][0]['output']);
+    }
+    if (isset($data['choices'][0]['text'])) {
+        return $data['choices'][0]['text'];
+    }
+    if (isset($data['output_text'])) {
+        return $data['output_text'];
+    }
+
+    utm_news_log_error("OpenRouter API response missing summary content. Response: " . wp_json_encode($data));
+    return false;
 }
 
 /**
@@ -611,10 +681,16 @@ function utm_news_generate_tts_audio($post_id, $force = false) {
         return false;
     }
     
-    // Get summary from post meta
-    $summary = get_post_meta($post_id, '_ai_summary', true);
+    // Get excerpt from post
+    $post = get_post($post_id);
+    if (!$post) {
+        utm_news_log_error("Post not found for ID: $post_id");
+        return false;
+    }
+    
+    $summary = trim($post->post_excerpt);
     if (empty($summary)) {
-        utm_news_log_error("No AI summary found for post ID: $post_id. Cannot generate audio.");
+        utm_news_log_error("No excerpt found for post ID: $post_id. Cannot generate audio.");
         return false;
     }
     
@@ -655,14 +731,9 @@ function utm_news_generate_tts_audio($post_id, $force = false) {
  * @return string|bool Binary audio data on success, false on error
  */
 function utm_news_call_elevenlabs_api($text, $language, $api_key) {
-    // Select voice ID based on language
-    if ($language === 'ms') {
-        // Malay voice
-        $voice_id = 'pMsXgVXv3BLzUgSXRplE';
-    } else {
-        // English voice (Rachel - clear female voice)
-        $voice_id = '21m00Tcm4TlvDq8ikWAM';
-    }
+    // Use single voice ID for both languages
+    // Voice ID: UcqZLa941Kkt8ZhEEybf
+    $voice_id = 'UcqZLa941Kkt8ZhEEybf';
     
     // Prepare API request body
     $body = array(
@@ -794,15 +865,17 @@ function utm_news_prepend_summary_box($content) {
         return $content;
     }
     
-    // Get summary from post meta
-    $summary = get_post_meta($post->ID, '_ai_summary', true);
+    // Get summary from post excerpt
+    $summary = trim($post->post_excerpt);
     if (empty($summary)) {
         return $content;
     }
+
+    $summaryTitle = (utm_news_get_summary_language($post->ID) === 'ms') ? '📝 Ringkasan' : '📝 Summary';
     
     // Build summary box HTML
     $box_html = '<div class="utm-news-ai-summary" style="background: #f0f7ff; border-left: 4px solid #0073aa; padding: 15px 20px; margin: 0 0 25px 0; border-radius: 4px;">';
-    $box_html .= '<h4 style="margin: 0 0 10px 0; color: #0073aa; font-size: 16px;">📝 Ringkasan / Summary</h4>';
+    $box_html .= '<h4 style="margin: 0 0 10px 0; color: #0073aa; font-size: 16px;">' . esc_html($summaryTitle) . '</h4>';
     $box_html .= '<p style="margin: 0; line-height: 1.6; color: #333;">' . wp_kses_post($summary) . '</p>';
     $box_html .= '</div>';
     
@@ -885,7 +958,7 @@ function utm_news_render_regenerate_metabox($post) {
     }
     
     // Get current status
-    $has_summary = !empty(get_post_meta($post->ID, '_ai_summary', true));
+    $has_summary = !empty(trim($post->post_excerpt));
     $has_audio = !empty(get_post_meta($post->ID, '_audio_attachment_id', true));
     
     // Build status indicators
@@ -898,12 +971,26 @@ function utm_news_render_regenerate_metabox($post) {
             <li>AI Summary: <?php echo esc_html($summary_status); ?></li>
             <li>Audio Shortcast: <?php echo esc_html($audio_status); ?></li>
         </ul>
-        <p><strong>Regenerate Content:</strong></p>
-        <p>Click the button below to regenerate the AI summary and audio shortcast. This will replace existing content.</p>
+        
+        <p><strong>Regenerate Summary:</strong></p>
+        <form method="post" action="" style="margin-bottom: 15px;">
+            <?php wp_nonce_field('utm_news_regenerate_summary_nonce', '_utm_news_regenerate_summary_nonce'); ?>
+            <input type="hidden" name="utm_news_regenerate_summary" value="1">
+            <button type="submit" class="button button-secondary" style="width: 100%;">Regenerate Summary Only</button>
+        </form>
+        
+        <p><strong>Regenerate Audio:</strong></p>
+        <form method="post" action="" style="margin-bottom: 15px;">
+            <?php wp_nonce_field('utm_news_regenerate_audio_nonce', '_utm_news_regenerate_audio_nonce'); ?>
+            <input type="hidden" name="utm_news_regenerate_audio" value="1">
+            <button type="submit" class="button button-secondary" style="width: 100%;">Regenerate Audio Only</button>
+        </form>
+        
+        <p><strong>Regenerate Both:</strong></p>
         <form method="post" action="">
-            <?php wp_nonce_field('utm_news_regenerate_nonce', '_wpnonce'); ?>
-            <input type="hidden" name="utm_news_regenerate" value="1">
-            <button type="submit" class="button button-primary">Regenerate Summary & Audio</button>
+            <?php wp_nonce_field('utm_news_regenerate_both_nonce', '_utm_news_regenerate_both_nonce'); ?>
+            <input type="hidden" name="utm_news_regenerate_both" value="1">
+            <button type="submit" class="button button-primary" style="width: 100%;">Regenerate Summary & Audio</button>
         </form>
     </div>
     <?php
@@ -922,13 +1009,8 @@ function utm_news_handle_manual_regenerate() {
         return;
     }
     
-    // Check if regenerate form was submitted
-    if (!isset($_POST['utm_news_regenerate']) || $_POST['utm_news_regenerate'] !== '1') {
-        return;
-    }
-    
-    // Verify nonce
-    if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'utm_news_regenerate_nonce')) {
+    // Only process if editing (not on other post.php actions)
+    if (!isset($_GET['action']) || $_GET['action'] !== 'edit') {
         return;
     }
     
@@ -947,22 +1029,82 @@ function utm_news_handle_manual_regenerate() {
         return;
     }
     
-    // Delete existing metas
-    delete_post_meta($post_id, '_ai_summary');
-    delete_post_meta($post_id, '_audio_attachment_id');
+    // Determine which action to take
+    $regenerate_summary = isset($_POST['utm_news_regenerate_summary']) && $_POST['utm_news_regenerate_summary'] === '1';
+    $regenerate_audio = isset($_POST['utm_news_regenerate_audio']) && $_POST['utm_news_regenerate_audio'] === '1';
+    $regenerate_both = isset($_POST['utm_news_regenerate_both']) && $_POST['utm_news_regenerate_both'] === '1';
     
-    // Store success message in transient and check generation results
-    $summary_result = utm_news_generate_ai_summary($post_id, true);
-    $audio_result = utm_news_generate_tts_audio($post_id, true);
+    // If none submitted, return early
+    if (!$regenerate_summary && !$regenerate_audio && !$regenerate_both) {
+        return;
+    }
     
-    if ($summary_result && $audio_result) {
-        set_transient('utm_news_regenerate_success_' . $post_id, 'both', 45);
-    } elseif ($summary_result) {
-        set_transient('utm_news_regenerate_success_' . $post_id, 'summary_only', 45);
-    } elseif ($audio_result) {
-        set_transient('utm_news_regenerate_success_' . $post_id, 'audio_only', 45);
-    } else {
-        set_transient('utm_news_regenerate_success_' . $post_id, 'failed', 45);
+    // Verify appropriate nonce based on action
+    if ($regenerate_summary) {
+        if (!isset($_POST['_utm_news_regenerate_summary_nonce']) || !wp_verify_nonce($_POST['_utm_news_regenerate_summary_nonce'], 'utm_news_regenerate_summary_nonce')) {
+            utm_news_log_error('Regenerate summary nonce verification failed');
+            return;
+        }
+        
+        // Clear existing excerpt
+        wp_update_post(array(
+            'ID' => $post_id,
+            'post_excerpt' => ''
+        ));
+        
+        // Regenerate summary only
+        $summary_result = utm_news_generate_ai_summary($post_id, true);
+        
+        if ($summary_result) {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'summary_success', 45);
+        } else {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'summary_failed', 45);
+        }
+        
+    } elseif ($regenerate_audio) {
+        if (!isset($_POST['_utm_news_regenerate_audio_nonce']) || !wp_verify_nonce($_POST['_utm_news_regenerate_audio_nonce'], 'utm_news_regenerate_audio_nonce')) {
+            utm_news_log_error('Regenerate audio nonce verification failed');
+            return;
+        }
+        
+        // Delete existing audio
+        delete_post_meta($post_id, '_audio_attachment_id');
+        
+        // Regenerate audio only
+        $audio_result = utm_news_generate_tts_audio($post_id, true);
+        
+        if ($audio_result) {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'audio_success', 45);
+        } else {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'audio_failed', 45);
+        }
+        
+    } elseif ($regenerate_both) {
+        if (!isset($_POST['_utm_news_regenerate_both_nonce']) || !wp_verify_nonce($_POST['_utm_news_regenerate_both_nonce'], 'utm_news_regenerate_both_nonce')) {
+            utm_news_log_error('Regenerate both nonce verification failed');
+            return;
+        }
+        
+        // Clear existing excerpt and audio
+        wp_update_post(array(
+            'ID' => $post_id,
+            'post_excerpt' => ''
+        ));
+        delete_post_meta($post_id, '_audio_attachment_id');
+        
+        // Regenerate both
+        $summary_result = utm_news_generate_ai_summary($post_id, true);
+        $audio_result = utm_news_generate_tts_audio($post_id, true);
+        
+        if ($summary_result && $audio_result) {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'both_success', 45);
+        } elseif ($summary_result) {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'summary_only', 45);
+        } elseif ($audio_result) {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'audio_only', 45);
+        } else {
+            set_transient('utm_news_regenerate_success_' . $post_id, 'both_failed', 45);
+        }
     }
     
     // Redirect to prevent resubmission
@@ -986,14 +1128,33 @@ function utm_news_show_regenerate_notice() {
     if ($status) {
         delete_transient('utm_news_regenerate_success_' . $post->ID);
         
-        if ($status === 'both') {
-            echo '<div class="notice notice-success is-dismissible"><p>Summary and audio regenerated successfully.</p></div>';
-        } elseif ($status === 'summary_only') {
-            echo '<div class="notice notice-warning is-dismissible"><p>Summary regenerated. Audio generation failed - check error log.</p></div>';
-        } elseif ($status === 'audio_only') {
-            echo '<div class="notice notice-warning is-dismissible"><p>Audio regenerated. Summary generation failed - check error log.</p></div>';
-        } else {
-            echo '<div class="notice notice-error is-dismissible"><p>Regeneration failed. Check error log for details.</p></div>';
+        switch ($status) {
+            case 'summary_success':
+                echo '<div class="notice notice-success is-dismissible"><p>Summary regenerated successfully.</p></div>';
+                break;
+            case 'summary_failed':
+                echo '<div class="notice notice-error is-dismissible"><p>Summary regeneration failed. Check error log for details.</p></div>';
+                break;
+            case 'audio_success':
+                echo '<div class="notice notice-success is-dismissible"><p>Audio regenerated successfully.</p></div>';
+                break;
+            case 'audio_failed':
+                echo '<div class="notice notice-error is-dismissible"><p>Audio regeneration failed. Check error log for details.</p></div>';
+                break;
+            case 'both_success':
+                echo '<div class="notice notice-success is-dismissible"><p>Summary and audio regenerated successfully.</p></div>';
+                break;
+            case 'summary_only':
+                echo '<div class="notice notice-warning is-dismissible"><p>Summary regenerated. Audio generation failed - check error log.</p></div>';
+                break;
+            case 'audio_only':
+                echo '<div class="notice notice-warning is-dismissible"><p>Audio regenerated. Summary generation failed - check error log.</p></div>';
+                break;
+            case 'both_failed':
+                echo '<div class="notice notice-error is-dismissible"><p>Both summary and audio regeneration failed. Check error log for details.</p></div>';
+                break;
+            default:
+                echo '<div class="notice notice-error is-dismissible"><p>Regeneration failed. Check error log for details.</p></div>';
         }
     }
 }
@@ -1153,6 +1314,78 @@ class UTM_News_Audio_Playlist_Widget extends WP_Widget {
 add_action( 'widgets_init', function() {
     register_widget( 'UTM_News_Audio_Playlist_Widget' );
 } );
+
+/**
+ * Register REST endpoint for debugging error log
+ */
+add_action('rest_api_init', function() {
+    register_rest_route('utm-news/v1', '/debug-log', array(
+        'methods' => 'GET',
+        'callback' => 'utm_news_get_debug_log',
+        'permission_callback' => function() {
+            // Allow if debug parameter matches secret or user is admin
+            if (isset($_GET['debug_key']) && $_GET['debug_key'] === 'utm2025debug') {
+                return true;
+            }
+            return current_user_can('manage_options');
+        }
+    ));
+});
+
+/**
+ * Get error log contents via REST API
+ * 
+ * Endpoint: /wp-json/utm-news/v1/debug-log
+ * Usage: curl -H "Authorization: Bearer YOUR_TOKEN" https://news.utm.my/wp-json/utm-news/v1/debug-log
+ * 
+ * @param WP_REST_Request $request
+ * @return WP_REST_Response|WP_Error
+ */
+function utm_news_get_debug_log($request) {
+    $log_file = dirname(__FILE__) . '/news.utm.my-errors.log';
+    
+    // Get number of lines (default last 100)
+    $lines = isset($request['lines']) ? intval($request['lines']) : 100;
+    $lines = max(1, min(1000, $lines)); // Limit between 1-1000
+    
+    if (!file_exists($log_file)) {
+        return new WP_REST_Response(array(
+            'success' => true,
+            'log_file' => $log_file,
+            'exists' => false,
+            'message' => 'No error log file found. No errors logged yet.'
+        ), 200);
+    }
+    
+    // Read last N lines efficiently
+    $file = new SplFileObject($log_file, 'r');
+    $file->seek(PHP_INT_MAX);
+    $total_lines = $file->key() + 1;
+    
+    $start_line = max(0, $total_lines - $lines);
+    $log_content = array();
+    
+    $file->seek($start_line);
+    while (!$file->eof()) {
+        $line = $file->current();
+        if (!empty(trim($line))) {
+            $log_content[] = rtrim($line);
+        }
+        $file->next();
+    }
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'log_file' => $log_file,
+        'exists' => true,
+        'total_lines' => $total_lines,
+        'returned_lines' => count($log_content),
+        'log_entries' => $log_content,
+        'ai_enabled' => get_option('utm_news_ai_enabled', '0'),
+        'has_openai_key' => !empty(get_option('utm_news_openai_key')),
+        'has_elevenlabs_key' => !empty(get_option('utm_news_elevenlabs_key'))
+    ), 200);
+}
 
 // Register admin menu
 add_action('admin_menu', 'utm_news_register_settings_menu');

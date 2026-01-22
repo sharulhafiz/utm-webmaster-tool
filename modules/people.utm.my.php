@@ -143,7 +143,7 @@ function utm_get_user_admin_sites( $user_id ) {
  * Ensure site is active and public
  * 
  * @param int $blog_id Blog/Site ID
- * @return bool True if site was activated or already active
+ * @return bool True if site was activated, false if already active or failed
  */
 function utm_ensure_site_active( $blog_id ) {
     global $wpdb;
@@ -171,14 +171,18 @@ function utm_ensure_site_active( $blog_id ) {
         );
         
         if ( false !== $updated ) {
-            utm_log_site_action( $blog_id, 'activated', 'Site automatically activated on user login' );
+            utm_log_site_action( $blog_id, 'activated', 'Site automatically activated' );
+            
+            // Clear site-specific caches
+            clean_blog_cache( $blog_id );
+            
             return true;
         }
         
         return false;
     }
     
-    return true; // Already active
+    return false; // Already active, no changes made
 }
 
 /**
@@ -280,11 +284,11 @@ add_action( 'init', 'utm_divi_onboarding_fix_on_logged_visit', 6 );
 // ==================================================================
 
 /**
- * Block non-super-admins and non-administrators from accessing main site dashboard
+ * Block non-super-admins from accessing main site dashboard
  * 
- * Hooked to admin_init, this ensures regular users cannot access the main site's
- * WordPress dashboard and are redirected to the homepage where their site list is displayed.
- * This reduces redirect loops and gives users control over which site to visit.
+ * Hooked to admin_init, this ensures only super admins can access the main site's
+ * WordPress dashboard. Other users are redirected to their own site wp-admin if they
+ * have one, otherwise to the homepage where their site will be auto-created.
  */
 add_action( 'admin_init', 'utm_block_main_admin_access' );
 function utm_block_main_admin_access() {
@@ -299,8 +303,8 @@ function utm_block_main_admin_access() {
 
     $user_id = get_current_user_id();
 
-    // Allow super admins and site administrators full access
-    if ( is_super_admin( $user_id ) || current_user_can( 'administrator' ) ) {
+    // Allow only super admins full access to main site dashboard
+    if ( is_super_admin( $user_id ) ) {
         return;
     }
 
@@ -315,19 +319,29 @@ function utm_block_main_admin_access() {
         return;
     }
 
-    // Redirect to homepage where site list is displayed via shortcode
-    utm_log_site_action( 0, 'redirect', 'User blocked from main site dashboard, redirected to site list' );
+    // Check if user has their own site to redirect to
+    $admin_sites = utm_get_user_admin_sites( $user_id );
     
-    wp_safe_redirect( home_url( '/' ) );
+    if ( ! empty( $admin_sites ) ) {
+        // Redirect to their first admin site's dashboard
+        $redirect_url = $admin_sites[0]['admin_url'];
+        utm_log_site_action( $admin_sites[0]['blog_id'], 'redirect', 'User redirected from main admin to their own site dashboard' );
+    } else {
+        // No site found - redirect to homepage for auto-creation
+        $redirect_url = home_url( '/' );
+        utm_log_site_action( 0, 'redirect', 'User blocked from main site dashboard, redirected to homepage for site auto-creation' );
+    }
+    
+    wp_safe_redirect( $redirect_url );
     exit;
 }
 
 /**
- * Login redirect: Send non-super-admins and non-administrators to homepage with site list
+ * Login redirect: Send non-super-admins to their own site or homepage
  * 
- * Instead of automatically redirecting to a specific site dashboard, users are shown
- * their site list on the homepage and can choose which site to visit. This reduces
- * redirect loop complexity and gives users more control.
+ * Only super admins can access the main site dashboard. Regular users are redirected
+ * to their own site's wp-admin if they have one, otherwise to the homepage where their
+ * site will be auto-created via the wp_login hook.
  * 
  * Respects explicit redirect_to parameters for front-end redirects.
  * 
@@ -348,17 +362,8 @@ function utm_login_redirect_to_site_list( $redirect_to, $requested, $user ) {
         return $redirect_to;
     }
 
-    // Exclude super admins and administrators - they can access the admin
+    // Exclude only super admins - they can access the main site admin
     if ( is_super_admin( $user->ID ) ) {
-        return $redirect_to;
-    }
-    
-    // Check if user has administrator role on main site
-    switch_to_blog( 1 );
-    $is_main_admin = user_can( $user->ID, 'administrator' );
-    restore_current_blog();
-    
-    if ( $is_main_admin ) {
         return $redirect_to;
     }
 
@@ -391,20 +396,23 @@ function utm_login_redirect_to_site_list( $redirect_to, $requested, $user ) {
         return $redirect_to;
     }
 
-    // Ensure user has at least one site or create one
+    // Check if user has their own site to redirect to
     $admin_sites = utm_get_user_admin_sites( $user->ID );
-    if ( empty( $admin_sites ) ) {
-        // Auto-create site will happen via wp_login hook
-        utm_log_site_action( 0, 'redirect', 'User login redirected to homepage - site will be auto-created' );
+    
+    if ( ! empty( $admin_sites ) ) {
+        // Redirect to their first admin site's dashboard
+        $redirect_url = $admin_sites[0]['admin_url'];
+        utm_log_site_action( $admin_sites[0]['blog_id'], 'redirect', 'User login redirected to their own site dashboard' );
     } else {
-        utm_log_site_action( 0, 'redirect', 'User login redirected to homepage with site list' );
+        // No site found - redirect to homepage where site will be auto-created via wp_login hook
+        $redirect_url = home_url( '/' );
+        utm_log_site_action( 0, 'redirect', 'User login redirected to homepage - site will be auto-created' );
     }
     
     // Clear any cached errors after successful login
     delete_transient( 'utm_site_creation_error_' . $user->ID );
     
-    // Redirect to homepage where [utm_user_sites] shortcode displays the site list
-    return home_url( '/' );
+    return $redirect_url;
 }
 
 /**
@@ -534,6 +542,64 @@ function utm_create_user_site( $user_id ) {
 }
 
 /**
+ * Activate all suspended/archived sites for user on login
+ * 
+ * This runs on login to ensure all user sites that are archived, spam, 
+ * or otherwise deactivated are reactivated. Bypasses cache to ensure
+ * all sites are checked.
+ * 
+ * @param string  $user_login Username
+ * @param WP_User $user       WP_User object
+ */
+add_action( 'wp_login', 'utm_activate_user_sites_on_login', 5, 2 );
+function utm_activate_user_sites_on_login( $user_login, $user ) {
+    $user_id = $user->ID;
+    
+    // Skip super admins
+    if ( is_super_admin( $user_id ) ) {
+        return;
+    }
+    
+    // Get ALL user blogs (bypassing any cache) including archived/spam ones
+    $user_blogs = get_blogs_of_user( $user_id, true );
+    
+    if ( empty( $user_blogs ) ) {
+        return;
+    }
+    
+    $activated_count = 0;
+    
+    foreach ( $user_blogs as $blog ) {
+        $blog_id = (int) $blog->userblog_id;
+        
+        // Skip permanently deleted sites
+        if ( get_blog_status( $blog_id, 'deleted' ) == 1 ) {
+            continue;
+        }
+        
+        // Check if user has administrator capability on this site
+        switch_to_blog( $blog_id );
+        $is_admin_here = current_user_can( 'administrator' );
+        restore_current_blog();
+        
+        if ( $is_admin_here ) {
+            // Ensure site is active
+            $was_activated = utm_ensure_site_active( $blog_id );
+            if ( $was_activated ) {
+                $activated_count++;
+            }
+        }
+    }
+    
+    // Clear the user's cached admin sites to ensure fresh data
+    if ( $activated_count > 0 ) {
+        delete_transient( 'utm_user_admin_sites_' . $user_id );
+        delete_user_meta( $user_id, 'utm_cached_admin_url' );
+        utm_log_site_action( 0, 'activated', "Activated $activated_count site(s) for user on login" );
+    }
+}
+
+/**
  * Auto-create site for user on login if they don't have one
  * 
  * This runs early in the login process to ensure the site exists
@@ -606,8 +672,29 @@ function utm_shortcode_user_sites_list( $atts = array() ) {
     $admin_sites = utm_get_user_admin_sites( $user_id );
     
     if ( empty( $admin_sites ) ) {
+        // Skip super admins - they don't need auto-created sites
+        if ( ! is_super_admin( $user_id ) ) {
+            // Try to auto-create a site for the user
+            $result = utm_create_user_site( $user_id );
+            
+            if ( ! is_wp_error( $result ) ) {
+                // Site was created successfully, refresh the list
+                delete_transient( 'utm_user_admin_sites_' . $user_id );
+                $admin_sites = utm_get_user_admin_sites( $user_id );
+            } else {
+                // Store the error for display
+                $creation_error = $result->get_error_message();
+            }
+        }
+    }
+    
+    if ( empty( $admin_sites ) ) {
         $output .= '<div class="utm-user-sites-notice">';
         $output .= '<p>' . esc_html__( 'You don\'t have any sites yet.', 'utm-webmaster' ) . '</p>';
+        
+        if ( ! empty( $creation_error ) ) {
+            $output .= '<p style="color: #d63638;"><strong>' . esc_html__( 'Error creating site:', 'utm-webmaster' ) . '</strong> ' . esc_html( $creation_error ) . '</p>';
+        }
         
         if ( $atts['show_create_button'] === 'yes' ) {
             $output .= '<p><a href="' . esc_url( admin_url() ) . '" class="button button-primary">' 

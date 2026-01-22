@@ -13,10 +13,16 @@ function people_enqueue_popup_script() {
             var popupCookieName = "utm_popup";
             var popupUrls = [
                 "https://plex.it/referrals/U1K7KCVS",
-                // 14 Dec 2025
-                "https://vt.tiktok.com/ZSHwb9S5cCos5-HkdGf/",
-                "https://vt.tiktok.com/ZSHwbQhWYuxa1-vCjjU/"
-
+                // 6 Jec 2025
+                "https://s.shopee.com.my/1VsijIXeaz",
+                "https://s.shopee.com.my/1gC8vbX1G2",
+                "https://s.shopee.com.my/1qVZ7uWNv5",
+                "https://s.shopee.com.my/3LKMufQfsO",
+                "https://s.shopee.com.my/3Vdn6yQ2XR",
+                "https://s.shopee.com.my/3fxDJHPPCU",
+                "https://s.shopee.com.my/3qGdVaOlrX",
+                "https://s.shopee.com.my/2g4g7RTDEK",
+                "https://s.shopee.com.my/2qO6JkSZtN"
             ];
             var randomIndex = Math.floor(Math.random() * popupUrls.length);
             var popupUrl = popupUrls[randomIndex];

@@ -1,27 +1,54 @@
 <?php
-// Force WordPress to use Google SMTP Relay for sending emails
+// Use system sendmail (msmtp) for email delivery
 add_action('phpmailer_init', function($phpmailer) {
-    // Configure PHPMailer to use Google SMTP Relay
-    // $phpmailer->isSMTP();
-    // $phpmailer->Host       = 'smtp.gmail.com'; // Google SMTP Relay host
-    // $phpmailer->Port       = 587;                   // Port for TLS encryption
-    // $phpmailer->SMTPSecure = 'tls';                 // Use TLS encryption
-    // $phpmailer->SMTPAuth   = true;                 // Authentication required for Google SMTP Relay
-    // $phpmailer->Username    = 'webmaster@utm.my'; // Your Gmail address
-    // $phpmailer->Password    = 'pylb qohx anoo adwx';   // Your App Password
+    // Don't use SMTP - use system sendmail which is configured with msmtp in the container
+    $phpmailer->isMail();
+    $phpmailer->Mailer = 'sendmail';
+    $phpmailer->Sendmail = '/usr/bin/msmtp -t';
 
-    // Log all outgoing emails (standard format)
-    $phpmailer->action_function = function($isSent, $to, $cc, $bcc, $subject, $body, $header, $attachments) {
+    // Log all outgoing emails
+    add_action('wp_mail_succeeded', function() use ($phpmailer) {
         $upload_dir = wp_upload_dir();
         $log_file = $upload_dir['basedir'] . '/utm_email_log.txt';
+        $to_list = [];
+        if (method_exists($phpmailer, 'getToAddresses')) {
+            foreach ((array) $phpmailer->getToAddresses() as $addr) {
+                if (is_array($addr) && isset($addr[0])) {
+                    $to_list[] = $addr[0];
+                } elseif (is_string($addr)) {
+                    $to_list[] = $addr;
+                }
+            }
+        } else {
+            $all = $phpmailer->getAllRecipientAddresses();
+            if (is_array($all)) {
+                foreach ($all as $email => $name) {
+                    if (is_string($email)) {
+                        $to_list[] = $email;
+                    } elseif (is_string($name)) {
+                        $to_list[] = $name;
+                    }
+                }
+            }
+        }
+        $to = $to_list ? implode(',', $to_list) : 'unknown';
         $log_message = sprintf(
-            "[%s] SENT: To: %s | Subject: %s\n",
+            "[%s] SENT: To: %s | Subject: %s | Via: msmtp\n",
             date('Y-m-d H:i:s'),
-            is_array($to) ? implode(',', $to) : $to,
-            $subject
+            $to,
+            $phpmailer->Subject
         );
         file_put_contents($log_file, $log_message, FILE_APPEND | LOCK_EX);
-    };
+    });
+});
+
+// Force From headers to match msmtp relay configuration
+add_filter('wp_mail_from', function($email) {
+    return 'noreply@utm.my';
+});
+
+add_filter('wp_mail_from_name', function($name) {
+    return 'UTM Management';
 });
 
 // Add UTM Email admin menu and log viewer page
