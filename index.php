@@ -64,6 +64,7 @@ function utm_load_modules() {
     $modules = array(
         'analytics',
         'antispam',
+        'auto-update',
         'backup',
         'brokenlink',
         'bulk-add-user',
