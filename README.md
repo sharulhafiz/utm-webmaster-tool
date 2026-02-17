@@ -65,7 +65,7 @@ UTM Webmaster Tool is a modular WordPress plugin that provides 40+ specialized m
 
 ## 🧩 Module Reference
 
-The plugin includes 44 specialized modules organized by function:
+The plugin includes 40+ specialized modules organized by function:
 
 ### Core Modules
 | Module | Description |
