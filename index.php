@@ -62,6 +62,7 @@ register_activation_hook( __FILE__, 'utm_plugin_activation_hook' );
 function utm_load_modules() {
     $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
     $modules = array(
+        'dashboard',
         'analytics',
         'antispam',
         'backup',
