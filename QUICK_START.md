@@ -2,7 +2,7 @@
 
 ## For Repository Administrators
 
-### 1. To Enable Auto-Updates (5 minutes)
+### 1. To Enable Auto-Updates (2 minutes)
 
 #### Step 1: Generate GitHub Token
 1. Go to https://github.com/settings/tokens
@@ -12,18 +12,17 @@
 5. Click "Generate token"
 6. **Copy the token immediately** (you won't see it again!)
 
-#### Step 2: Add Token to WordPress
-1. Open your `wp-config.php` file
-2. Add this line before `/* That's all, stop editing! */`:
+#### Step 2: Add Token to Plugin
+1. Open `modules/auto-update.php` in this repository
+2. Find line ~90: `$this->access_token = '';`
+3. Add your token between the quotes:
    ```php
-   define('UTM_GITHUB_ACCESS_TOKEN', 'paste_your_token_here');
+   $this->access_token = 'ghp_YourTokenHere123456789';
    ```
-3. Save the file
+4. Save the file and commit to the repository
 
-#### Step 3: Test
-1. Go to WordPress Admin → Plugins
-2. You should see an info notice about auto-updates
-3. The module is now active!
+#### Step 3: Deploy
+Once you commit the token to this repository, it will automatically work on all WordPress installations that use this plugin. No need to configure each site individually!
 
 ### 2. To Create a New Release
 
@@ -54,11 +53,8 @@ git push origin v5.41
 ### Installation (Already Done)
 The auto-update module is included in the plugin. No installation needed!
 
-### For Public Repository
-No configuration needed - updates work automatically.
-
-### For Private Repository
-Ask your administrator to configure the GitHub token in `wp-config.php`.
+### Configuration
+No configuration needed on your WordPress installation! The GitHub token is already configured in the plugin repository, so updates work automatically across all your sites.
 
 ### How to Update
 1. Go to WordPress Admin → Plugins
@@ -71,8 +67,8 @@ Ask your administrator to configure the GitHub token in `wp-config.php`.
 ## Troubleshooting
 
 ### Updates Not Showing?
-1. Check `wp-config.php` has the token defined
-2. Verify token hasn't expired at https://github.com/settings/tokens
+1. Verify the GitHub token is set in `modules/auto-update.php` (line ~90)
+2. Check token hasn't expired at https://github.com/settings/tokens
 3. Ensure releases are published (not draft) on GitHub
 4. Check PHP error logs for specific errors
 5. Try: Plugins → Check for updates (force refresh)

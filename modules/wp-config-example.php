@@ -1,62 +1,54 @@
 <?php
 /**
- * Example wp-config.php Configuration for UTM Plugin Auto-Update
+ * Optional wp-config.php Configuration for UTM Plugin Auto-Update
  * 
- * Add these lines to your wp-config.php file to enable automatic updates
- * from a private GitHub repository.
+ * NOTE: Configuration is no longer required in wp-config.php!
+ * The GitHub token is now set directly in the plugin file (modules/auto-update.php).
  * 
- * IMPORTANT: Place these lines before the "That's all, stop editing!" comment
- * in your wp-config.php file.
+ * However, you can still use wp-config.php to override the token if needed.
+ * This is useful if you want different tokens for different installations.
  */
 
 /**
- * GitHub Auto-Update Configuration
+ * Optional: Override GitHub Access Token
  * 
- * For private repositories, you need to provide a GitHub Personal Access Token.
- * 
+ * If you want to override the token set in the plugin file,
+ * add this line to your wp-config.php file:
+ */
+
+// define( 'UTM_GITHUB_ACCESS_TOKEN', 'your_github_personal_access_token_here' );
+
+/**
  * How to generate a token:
  * 1. Go to https://github.com/settings/tokens
  * 2. Click "Generate new token (classic)"
  * 3. Give it a name like "UTM Plugin Auto-Update"
  * 4. Select the "repo" scope (Full control of private repositories)
  * 5. Click "Generate token"
- * 6. Copy the token and paste it below
+ * 6. Copy the token and paste it in the define above
  */
 
-// Required for private repositories
-define( 'UTM_GITHUB_ACCESS_TOKEN', 'your_github_personal_access_token_here' );
-
 /**
- * Optional: Custom Repository Configuration
+ * Primary Configuration Method (Recommended):
  * 
- * If you're using a fork or different repository, you can override
- * the default repository settings:
+ * Instead of using wp-config.php, you can set the token directly in:
+ * modules/auto-update.php (line ~90)
+ * 
+ * This way, the token is committed to the repository and automatically
+ * works across all your WordPress installations without manual configuration.
  */
 
-// define( 'UTM_GITHUB_REPO_OWNER', 'your-github-username' );
-// define( 'UTM_GITHUB_REPO_NAME', 'your-repo-name' );
-
 /**
- * Security Best Practices:
+ * Security Note:
  * 
- * 1. Never commit wp-config.php to version control
- * 2. Ensure wp-config.php has restricted file permissions (e.g., 0600)
- * 3. Keep your GitHub token secure and rotate it periodically
- * 4. Only grant "repo" scope to the token (minimum required permissions)
+ * Since this is a private repository and the token will only be distributed
+ * to your own WordPress installations, it's safe to commit the token to the
+ * repository. However, ensure:
+ * 
+ * 1. The repository remains private
+ * 2. Only trusted users have access to the repository
+ * 3. Rotate the token periodically
+ * 4. Only grant "repo" scope (minimum required permissions)
  * 5. Monitor your GitHub account for unexpected token usage
  */
 
-/**
- * Troubleshooting:
- * 
- * If updates are not appearing:
- * - Verify the token is correctly pasted (no extra spaces)
- * - Check that the token has "repo" scope
- * - Ensure releases are published (not draft) on GitHub
- * - Check WordPress error logs for specific error messages
- * - Try clearing the update cache in WordPress admin
- * 
- * Error log location:
- * - Usually in /wp-content/debug.log (if WP_DEBUG_LOG is enabled)
- * - Or check your server's PHP error logs
- */

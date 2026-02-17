@@ -11,45 +11,48 @@ The auto-update module enables automatic updates for the UTM Webmaster Tool plug
 - Integration with WordPress native update system
 - Caching of update information to reduce API calls
 - Proper directory naming during updates
-- Admin notices for configuration guidance
+- Hardcoded configuration in the plugin (no wp-config.php setup needed)
 
 ## Configuration
 
-### Basic Configuration (Public Repository)
+### Setting Up Auto-Updates
 
-If your repository is public, the module will work out of the box with default settings:
+The GitHub repository information is already configured in the plugin. To enable automatic updates from the private repository:
 
-- **Repository Owner**: `sharulhafiz`
-- **Repository Name**: `utm-webmaster-tool`
+1. Open `modules/auto-update.php`
+2. Find line ~90 in the constructor: `$this->access_token = '';`
+3. Add your GitHub Personal Access Token between the quotes
 
-### Advanced Configuration (Private Repository)
-
-For private repositories, you need to configure a GitHub access token in your `wp-config.php` file:
-
+**Example:**
 ```php
-// GitHub Auto-Update Configuration
-define( 'UTM_GITHUB_ACCESS_TOKEN', 'your_github_personal_access_token_here' );
+$this->access_token = 'ghp_YourTokenHere123456789';
 ```
 
-#### Generating a GitHub Access Token
+### Generating a GitHub Access Token
 
 1. Go to [GitHub Settings > Personal Access Tokens](https://github.com/settings/tokens)
 2. Click "Generate new token" (classic)
 3. Give it a descriptive name (e.g., "UTM Plugin Auto-Update")
 4. Select the `repo` scope (Full control of private repositories)
 5. Click "Generate token"
-6. Copy the token and add it to your `wp-config.php` file
+6. Copy the token and add it to `modules/auto-update.php` as shown above
 
-### Custom Repository Configuration
+### Repository Information (Already Set)
 
-If you need to use a different repository:
+- **Repository Owner**: `sharulhafiz`
+- **Repository Name**: `utm-webmaster-tool`
+
+These values are hardcoded in the plugin and work automatically across all your WordPress installations.
+
+### Optional: Override via wp-config.php
+
+If you prefer, you can still override the access token in `wp-config.php`:
 
 ```php
-// Custom GitHub repository
-define( 'UTM_GITHUB_REPO_OWNER', 'your-github-username' );
-define( 'UTM_GITHUB_REPO_NAME', 'your-repo-name' );
 define( 'UTM_GITHUB_ACCESS_TOKEN', 'your_github_token' );
 ```
+
+This will take precedence over the token in the plugin file.
 
 ## How It Works
 

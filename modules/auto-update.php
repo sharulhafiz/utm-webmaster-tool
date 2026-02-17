@@ -6,9 +6,18 @@
  * It hooks into WordPress update mechanisms to check for and install updates.
  * 
  * Configuration:
- * - Define UTM_GITHUB_REPO_OWNER (default: 'sharulhafiz')
- * - Define UTM_GITHUB_REPO_NAME (default: 'utm-webmaster-tool')
- * - Define UTM_GITHUB_ACCESS_TOKEN for private repositories (optional)
+ * The GitHub repository information is hardcoded in this file:
+ * - Repository Owner: 'sharulhafiz'
+ * - Repository Name: 'utm-webmaster-tool'
+ * - Access Token: Set in the constructor (line ~83)
+ * 
+ * To enable automatic updates:
+ * 1. Generate a GitHub Personal Access Token at https://github.com/settings/tokens
+ * 2. Give it 'repo' scope (Full control of private repositories)
+ * 3. Add the token to line ~83 in the constructor: $this->access_token = 'your_token_here';
+ * 
+ * Optional: You can still override the token via wp-config.php if needed:
+ * define('UTM_GITHUB_ACCESS_TOKEN', 'your_token');
  * 
  * @package UTM_Webmaster_Tool
  * @since 5.40
@@ -71,10 +80,19 @@ class UTM_Plugin_Auto_Updater {
         $this->plugin_slug = 'utm-webmaster-tool';
         $this->plugin_basename = plugin_basename( dirname( dirname( __FILE__ ) ) . '/index.php' );
         
-        // Set GitHub repository information
-        $this->github_owner = defined( 'UTM_GITHUB_REPO_OWNER' ) ? UTM_GITHUB_REPO_OWNER : 'sharulhafiz';
-        $this->github_repo = defined( 'UTM_GITHUB_REPO_NAME' ) ? UTM_GITHUB_REPO_NAME : 'utm-webmaster-tool';
-        $this->access_token = defined( 'UTM_GITHUB_ACCESS_TOKEN' ) ? UTM_GITHUB_ACCESS_TOKEN : '';
+        // Set GitHub repository information - hardcoded for this repository
+        $this->github_owner = 'sharulhafiz';
+        $this->github_repo = 'utm-webmaster-tool';
+        
+        // GitHub Access Token for private repository
+        // Set your GitHub Personal Access Token here (with 'repo' scope)
+        // Generate at: https://github.com/settings/tokens
+        $this->access_token = ''; // Add your token here
+        
+        // Allow override via wp-config.php if needed (optional)
+        if ( defined( 'UTM_GITHUB_ACCESS_TOKEN' ) && ! empty( UTM_GITHUB_ACCESS_TOKEN ) ) {
+            $this->access_token = UTM_GITHUB_ACCESS_TOKEN;
+        }
         
         // Set cache key
         $this->cache_key = 'utm_plugin_update_' . md5( $this->github_owner . '/' . $this->github_repo );
@@ -362,30 +380,3 @@ function utm_init_auto_updater() {
 }
 add_action( 'init', 'utm_init_auto_updater' );
 
-/**
- * Add admin notice for auto-update configuration
- */
-function utm_auto_update_admin_notice() {
-    // Only show to network admins
-    if ( ! is_super_admin() ) {
-        return;
-    }
-    
-    // Check if access token is configured for private repo
-    if ( ! defined( 'UTM_GITHUB_ACCESS_TOKEN' ) ) {
-        $screen = get_current_screen();
-        if ( $screen && in_array( $screen->id, array( 'plugins', 'plugins-network' ) ) ) {
-            ?>
-            <div class="notice notice-info">
-                <p>
-                    <strong>UTM Webmaster Tool:</strong> 
-                    For automatic updates from a private repository, please define <code>UTM_GITHUB_ACCESS_TOKEN</code> in your wp-config.php file.
-                    <a href="https://github.com/settings/tokens" target="_blank">Generate a GitHub token</a> with <code>repo</code> access.
-                </p>
-            </div>
-            <?php
-        }
-    }
-}
-add_action( 'admin_notices', 'utm_auto_update_admin_notice' );
-add_action( 'network_admin_notices', 'utm_auto_update_admin_notice' );
