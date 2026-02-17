@@ -326,7 +326,7 @@ function utm_dashboard_render_page() {
         
         <div style="background: #fff; border: 1px solid #ccd0d4; padding: 20px; margin: 20px 0; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
             <h2>Plugin Information</h2>
-            <p><strong>Version:</strong> <?php echo UTM_PLUGIN_VERSION; ?></p>
+            <p><strong>Version:</strong> <?php echo esc_html( UTM_PLUGIN_VERSION ); ?></p>
             <p><strong>Author:</strong> UTM Webmaster Team</p>
             <p>This plugin provides essential tools and optional features for UTM websites.</p>
         </div>
@@ -344,7 +344,7 @@ function utm_dashboard_render_page() {
                     $file_path = $modules_dir . $module['file'];
                     $is_active = file_exists( $file_path );
                 ?>
-                    <div style="border: 1px solid #dcdcde; padding: 15px; border-radius: 4px; <?php echo $is_active ? 'background: #f0f6fc;' : 'background: #fcf0f1;'; ?>">
+                    <div style="border: 1px solid #dcdcde; padding: 15px; border-radius: 4px; <?php echo esc_attr( $is_active ? 'background: #f0f6fc;' : 'background: #fcf0f1;' ); ?>">
                         <h3 style="margin: 0 0 10px 0; font-size: 14px;">
                             <?php if ( $is_active ) : ?>
                                 <span class="dashicons dashicons-yes-alt" style="color: #00a32a;"></span>
@@ -385,7 +385,7 @@ function utm_dashboard_render_page() {
                     $file_path = $modules_dir . $module['file'];
                     $is_active = file_exists( $file_path );
                 ?>
-                    <div style="border: 1px solid #dcdcde; padding: 15px; border-radius: 4px; <?php echo $is_active ? '' : 'background: #f6f7f7; opacity: 0.7;'; ?>">
+                    <div style="border: 1px solid #dcdcde; padding: 15px; border-radius: 4px; <?php echo esc_attr( $is_active ? '' : 'background: #f6f7f7; opacity: 0.7;' ); ?>">
                         <h3 style="margin: 0 0 10px 0; font-size: 14px;">
                             <?php if ( $is_active ) : ?>
                                 <span class="dashicons dashicons-yes-alt" style="color: #00a32a;"></span>
