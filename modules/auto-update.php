@@ -83,6 +83,7 @@ class UTM_Plugin_Auto_Updater {
         add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_update' ) );
         add_filter( 'plugins_api', array( $this, 'plugin_info' ), 10, 3 );
         add_filter( 'upgrader_source_selection', array( $this, 'fix_source_dir' ), 10, 3 );
+        add_filter( 'http_request_args', array( $this, 'add_download_auth' ), 10, 2 );
     }
     
     /**
@@ -93,6 +94,12 @@ class UTM_Plugin_Auto_Updater {
      */
     public function check_for_update( $transient ) {
         if ( empty( $transient->checked ) ) {
+            return $transient;
+        }
+        
+        // Ensure plugin version constant is defined
+        if ( ! defined( 'UTM_PLUGIN_VERSION' ) ) {
+            error_log( 'UTM Plugin Auto-Updater: UTM_PLUGIN_VERSION constant is not defined' );
             return $transient;
         }
         
@@ -190,6 +197,30 @@ class UTM_Plugin_Auto_Updater {
     }
     
     /**
+     * Add authentication to download requests
+     * 
+     * @param array $args HTTP request arguments
+     * @param string $url Request URL
+     * @return array Modified arguments
+     */
+    public function add_download_auth( $args, $url ) {
+        // Check if this is a GitHub zipball download for our plugin
+        if ( strpos( $url, 'api.github.com' ) !== false && 
+             strpos( $url, 'zipball' ) !== false &&
+             strpos( $url, $this->github_owner . '/' . $this->github_repo ) !== false &&
+             ! empty( $this->access_token ) ) {
+            
+            // Add authorization header (more secure than URL parameter)
+            if ( ! isset( $args['headers'] ) ) {
+                $args['headers'] = array();
+            }
+            $args['headers']['Authorization'] = 'token ' . $this->access_token;
+        }
+        
+        return $args;
+    }
+    
+    /**
      * Get update information from GitHub
      * 
      * @return object|false Update information or false on failure
@@ -276,11 +307,9 @@ class UTM_Plugin_Auto_Updater {
         // Extract version from tag name (remove 'v' prefix if present)
         $version = ltrim( $release->tag_name, 'v' );
         
-        // Find the zipball download URL with authentication if needed
+        // Use zipball download URL
+        // Note: Authentication is handled by WordPress upgrader using http_request_args filter
         $download_url = $release->zipball_url;
-        if ( ! empty( $this->access_token ) ) {
-            $download_url = add_query_arg( 'access_token', $this->access_token, $download_url );
-        }
         
         $update_info = (object) array(
             'name' => 'UTM Webmaster Tool',
@@ -307,11 +336,14 @@ class UTM_Plugin_Auto_Updater {
      */
     private function format_changelog( $body ) {
         if ( empty( $body ) ) {
-            return '<p>See the <a href="https://github.com/' . $this->github_owner . '/' . $this->github_repo . '/releases" target="_blank">release notes</a> for details.</p>';
+            return '<p>See the <a href="https://github.com/' . esc_attr( $this->github_owner ) . '/' . esc_attr( $this->github_repo ) . '/releases" target="_blank">release notes</a> for details.</p>';
         }
         
         // Convert markdown to HTML (basic conversion)
         $changelog = wpautop( $body );
+        
+        // Sanitize HTML to prevent XSS vulnerabilities
+        $changelog = wp_kses_post( $changelog );
         
         return $changelog;
     }

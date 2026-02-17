@@ -79,8 +79,10 @@ Update information is cached for 12 hours to minimize GitHub API calls. The cach
 For the auto-update to work properly, you must:
 
 1. **Create releases** on GitHub (not just tags)
-2. **Use version tags** in the format `v5.40` or `5.40`
+2. **Use version tags** in the format `v5.40` or `5.40` (recommended: `v5.40` with 'v' prefix for consistency)
 3. **Publish releases** (draft releases are not detected)
+
+**Note:** The module automatically strips the 'v' prefix if present, so both `v5.40` and `5.40` will be interpreted as version `5.40`. For consistency and best practices, we recommend using the 'v' prefix format (e.g., `v5.40`, `v5.41`).
 
 ### Creating a Release
 
