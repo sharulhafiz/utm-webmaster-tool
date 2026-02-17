@@ -372,6 +372,27 @@ class UTM_Plugin_Auto_Updater {
     public function clear_cache() {
         delete_transient( $this->cache_key );
     }
+    
+    /**
+     * Get access token status (for admin display)
+     * 
+     * @return string
+     */
+    public function get_access_token() {
+        return $this->access_token;
+    }
+    
+    /**
+     * Get repository information (for admin display)
+     * 
+     * @return array
+     */
+    public function get_repo_info() {
+        return array(
+            'owner' => $this->github_owner,
+            'repo' => $this->github_repo,
+        );
+    }
 }
 
 // Initialize the auto-updater
@@ -379,4 +400,210 @@ function utm_init_auto_updater() {
     new UTM_Plugin_Auto_Updater();
 }
 add_action( 'init', 'utm_init_auto_updater' );
+
+/**
+ * Add admin menu page for Auto-Update setup guide
+ */
+function utm_auto_update_admin_menu() {
+    // Add as submenu under Tools
+    add_submenu_page(
+        'tools.php',
+        'Auto-Update Setup',
+        'Auto-Update Setup',
+        'manage_options',
+        'utm-auto-update-setup',
+        'utm_auto_update_render_page'
+    );
+}
+add_action( 'admin_menu', 'utm_auto_update_admin_menu' );
+
+/**
+ * Render the Auto-Update setup page
+ */
+function utm_auto_update_render_page() {
+    // Check user permissions
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( __( 'You do not have sufficient permissions to access this page.' ) );
+    }
+    
+    // Get current token status
+    $updater = new UTM_Plugin_Auto_Updater();
+    $has_token = ! empty( $updater->get_access_token() );
+    $repo_info = $updater->get_repo_info();
+    
+    ?>
+    <div class="wrap">
+        <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+        
+        <div class="notice notice-info inline">
+            <p><strong>Current Status:</strong></p>
+            <ul style="list-style: disc; margin-left: 20px;">
+                <li>Repository: <code><?php echo esc_html( $repo_info['owner'] . '/' . $repo_info['repo'] ); ?></code></li>
+                <li>Access Token: <?php echo $has_token ? '<span style="color: green;">✓ Configured</span>' : '<span style="color: red;">✗ Not configured</span>'; ?></li>
+                <li>Cache: 12 hours</li>
+            </ul>
+        </div>
+        
+        <h2>Quick Start Guide</h2>
+        <div style="background: #fff; border: 1px solid #ccc; padding: 20px; margin: 20px 0;">
+            <?php echo utm_auto_update_get_quick_start_html(); ?>
+        </div>
+        
+        <h2>Implementation Details</h2>
+        <details style="background: #fff; border: 1px solid #ccc; padding: 20px; margin: 20px 0;">
+            <summary style="cursor: pointer; font-weight: bold; font-size: 16px;">Click to view technical implementation details</summary>
+            <div style="margin-top: 15px;">
+                <?php echo utm_auto_update_get_implementation_html(); ?>
+            </div>
+        </details>
+        
+        <h2>Troubleshooting</h2>
+        <div style="background: #fff; border: 1px solid #ccc; padding: 20px; margin: 20px 0;">
+            <h3>Updates Not Showing?</h3>
+            <ol>
+                <li>Verify the GitHub token is set in <code>modules/auto-update.php</code> (line ~90)</li>
+                <li>Check token hasn't expired at <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings</a></li>
+                <li>Ensure releases are published (not draft) on GitHub</li>
+                <li>Check PHP error logs for specific errors</li>
+                <li>Try: Plugins → Check for updates (force refresh)</li>
+            </ol>
+            
+            <h3>Where Are Error Logs?</h3>
+            <p>Look for: <code>UTM Plugin Auto-Updater:</code> prefix in:</p>
+            <ul style="list-style: disc; margin-left: 20px;">
+                <li><code>/wp-content/debug.log</code> (if WP_DEBUG_LOG enabled)</li>
+                <li>Server error logs (ask hosting provider)</li>
+            </ul>
+        </div>
+    </div>
+    <?php
+}
+
+/**
+ * Get access token (for display purposes)
+ */
+function utm_auto_update_get_token_status() {
+    $updater = new UTM_Plugin_Auto_Updater();
+    return ! empty( $updater->get_access_token() );
+}
+
+/**
+ * Convert Quick Start markdown to HTML
+ */
+function utm_auto_update_get_quick_start_html() {
+    ob_start();
+    ?>
+    <h3>For Repository Administrators</h3>
+    
+    <h4>Step 1: Generate GitHub Token</h4>
+    <ol>
+        <li>Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Tokens</a></li>
+        <li>Click "Generate new token (classic)"</li>
+        <li>Name: <code>UTM Plugin Auto-Update</code></li>
+        <li>Select scope: ✅ <code>repo</code> (Full control of private repositories)</li>
+        <li>Click "Generate token"</li>
+        <li><strong>Copy the token immediately</strong> (you won't see it again!)</li>
+    </ol>
+    
+    <h4>Step 2: Add Token to Plugin</h4>
+    <ol>
+        <li>Open <code>modules/auto-update.php</code> in this repository</li>
+        <li>Find line ~90: <code>$this->access_token = '';</code></li>
+        <li>Add your token between the quotes:
+            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;"><code>$this->access_token = 'ghp_YourTokenHere123456789';</code></pre>
+        </li>
+        <li>Save the file and commit to the repository</li>
+    </ol>
+    
+    <h4>Step 3: Deploy</h4>
+    <p>Once you commit the token to this repository, it will automatically work on all WordPress installations that use this plugin. No need to configure each site individually!</p>
+    
+    <h3>To Create a New Release</h3>
+    <h4>Method 1: GitHub Web Interface</h4>
+    <ol>
+        <li>Go to repository: <a href="https://github.com/sharulhafiz/utm-webmaster-tool" target="_blank">sharulhafiz/utm-webmaster-tool</a></li>
+        <li>Click "Releases" → "Create a new release"</li>
+        <li>Tag version: <code>v5.41</code> (increment from current version)</li>
+        <li>Release title: "Version 5.41"</li>
+        <li>Description: Add release notes</li>
+        <li>Click "Publish release"</li>
+    </ol>
+    
+    <h4>Method 2: Command Line</h4>
+    <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;"><code>git tag v5.41
+git push origin v5.41
+# Then create release on GitHub from the tag</code></pre>
+    
+    <h3>Updates Will Appear In</h3>
+    <ul style="list-style: disc; margin-left: 20px;">
+        <li>WordPress Admin → Dashboard → Updates</li>
+        <li>WordPress Admin → Plugins (update badge)</li>
+        <li>Automatic checks every 12 hours</li>
+    </ul>
+    <?php
+    return ob_get_clean();
+}
+
+/**
+ * Convert Implementation Summary markdown to HTML
+ */
+function utm_auto_update_get_implementation_html() {
+    ob_start();
+    ?>
+    <h3>Overview</h3>
+    <p>Successfully implemented a comprehensive plugin auto-update module that enables the UTM Webmaster Tool to update automatically from a private GitHub repository.</p>
+    
+    <h3>Key Features Implemented</h3>
+    
+    <h4>Core Functionality</h4>
+    <ul style="list-style: disc; margin-left: 20px;">
+        <li><strong>Automatic Update Checking</strong>: Checks GitHub releases every 12 hours</li>
+        <li><strong>Version Comparison</strong>: Compares current version with latest release</li>
+        <li><strong>Update Installation</strong>: Downloads and installs updates through WordPress</li>
+        <li><strong>Directory Naming</strong>: Fixes directory structure during extraction</li>
+        <li><strong>Caching</strong>: Reduces API calls with 12-hour cache</li>
+    </ul>
+    
+    <h4>Security Features</h4>
+    <ul style="list-style: disc; margin-left: 20px;">
+        <li><strong>Header-Based Authentication</strong>: Uses Authorization header instead of URL parameters</li>
+        <li><strong>XSS Prevention</strong>: Sanitizes changelog HTML with <code>wp_kses_post()</code></li>
+        <li><strong>Input Validation</strong>: Validates constants before use</li>
+        <li><strong>URL Escaping</strong>: Proper escaping with <code>esc_attr()</code></li>
+        <li><strong>Error Logging</strong>: Comprehensive error logging for debugging</li>
+    </ul>
+    
+    <h4>WordPress Integration</h4>
+    <ul style="list-style: disc; margin-left: 20px;">
+        <li><code>pre_set_site_transient_update_plugins</code> - Update checking</li>
+        <li><code>plugins_api</code> - Plugin information display</li>
+        <li><code>upgrader_source_selection</code> - Directory naming fix</li>
+        <li><code>http_request_args</code> - Authentication injection</li>
+    </ul>
+    
+    <h3>Configuration</h3>
+    <p>The GitHub repository information is hardcoded in the plugin file:</p>
+    <ul style="list-style: disc; margin-left: 20px;">
+        <li>Repository: <code>sharulhafiz/utm-webmaster-tool</code></li>
+        <li>Access Token: Set in <code>modules/auto-update.php</code> at line ~90</li>
+    </ul>
+    
+    <h3>API Usage</h3>
+    <ul style="list-style: disc; margin-left: 20px;">
+        <li><strong>Endpoint</strong>: <code>https://api.github.com/repos/{owner}/{repo}/releases/latest</code></li>
+        <li><strong>Rate Limits</strong>: 5,000/hour (authenticated), 60/hour (unauthenticated)</li>
+        <li><strong>Caching</strong>: 12 hours to minimize API calls</li>
+        <li><strong>Timeout</strong>: 15 seconds per request</li>
+    </ul>
+    
+    <h3>GitHub Release Requirements</h3>
+    <p>For the module to work, releases must:</p>
+    <ol>
+        <li>Be created on GitHub (not just tags)</li>
+        <li>Use version tags (e.g., <code>v5.40</code> or <code>5.40</code>)</li>
+        <li>Be published (not draft)</li>
+    </ol>
+    <?php
+    return ob_get_clean();
+}
 
