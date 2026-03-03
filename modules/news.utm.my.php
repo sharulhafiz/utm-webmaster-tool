@@ -529,37 +529,157 @@ function utm_news_generate_ai_summary($post_id, $force = false) {
 }
 
 /**
- * Call OpenRouter API to generate summary
+ * Call LLM API to generate summary
  * 
- * Makes HTTP request to OpenRouter's chat completions endpoint.
- * Uses google-vertex model with temperature 0.7 and max 150 tokens.
+ * Primary: Tries Ollama local endpoint (http://161.139.39.214/api/chat/completions)
+ * Fallback: After 3 failed attempts, falls back to OpenRouter
  * 
  * @param string $prompt   The prompt text (post title + content)
  * @param string $language Language code: 'ms' or 'en'
  * @return string|bool Summary text on success, false on error
  */
 function utm_news_call_openai_api($prompt, $language) {
-    // NOTE: This function now uses OpenRouter's chat completions endpoint
-    // and the `google-vertex` model for text summaries. The API key is
-    // stored in option `utm_news_openai_key` (can be an OpenRouter key).
+    // Build system prompt based on language
+    if ($language === 'ms') {
+        $system_prompt = "Ringkaskan artikel berita berikut dalam 2-3 ayat dalam Bahasa Melayu. Berikan ringkasan sahaja tanpa sebarang pengenalan, penjelasan atau frasa seperti 'Berikut adalah ringkasan'. Terus berikan ringkasan. Fokus pada impak utama dan maklumat penting.";
+    } else {
+        $system_prompt = "Summarize the following news article in 2-3 sentences in English. Output only the summary without any preamble, explanation, or phrases like 'Here is the summary'. Provide the summary directly. Focus on the main impact and key information.";
+    }
 
-    // Get API key (OpenRouter)
-    $api_key = get_option('utm_news_openai_key');
-    if (empty($api_key)) {
-        utm_news_log_error("OpenRouter API key is empty in utm_news_call_openai_api");
+    // Try Ollama first (3 attempts)
+    $ollama_result = utm_news_call_ollama_api($prompt, $system_prompt, 3);
+    if ($ollama_result !== false) {
+        utm_news_log_error("Ollama API success for language: $language");
+        return $ollama_result;
+    }
+
+    // Fallback to OpenRouter after 3 failed Ollama attempts
+    utm_news_log_error("Ollama API failed after 3 attempts. Falling back to OpenRouter.");
+    return utm_news_call_openrouter_api($prompt, $system_prompt);
+}
+
+/**
+ * Call Ollama local API to generate summary
+ * 
+ * Makes HTTP request to local Ollama endpoint with retry logic.
+ * Uses llama3.1:8b model.
+ * 
+ * @param string $prompt        The prompt text (post title + content)
+ * @param string $system_prompt The system prompt
+ * @param int    $max_attempts  Maximum number of retry attempts
+ * @return string|bool Summary text on success, false on error
+ */
+function utm_news_call_ollama_api($prompt, $system_prompt, $max_attempts = 3) {
+    $ollama_url = 'http://161.139.39.214/api/chat/completions';
+    $ollama_key = 'sk-d1d16d5366c74ae2acf01a0d08d080f3';
+    
+    // Prepare API request body for Ollama
+    $body = array(
+        'model' => 'llama3.1:8b',
+        'messages' => array(
+            array(
+                'role' => 'system',
+                'content' => $system_prompt
+            ),
+            array(
+                'role' => 'user',
+                'content' => $prompt
+            )
+        ),
+        'temperature' => 0.7,
+        'max_tokens' => 150
+    );
+
+    // Retry logic
+    for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+        // Prepare API request
+        $args = array(
+            'headers' => array(
+                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $ollama_key
+            ),
+            'body' => wp_json_encode($body),
+            'timeout' => 60
+        );
+
+        // Make API call to Ollama
+        $response = wp_remote_post($ollama_url, $args);
+
+        // Check for errors
+        if (is_wp_error($response)) {
+            utm_news_log_error("Ollama API request failed (attempt $attempt/$max_attempts): " . $response->get_error_message());
+            if ($attempt < $max_attempts) {
+                sleep(2); // Wait 2 seconds before retry
+                continue;
+            }
+            return false;
+        }
+
+        // Check response code
+        $response_code = wp_remote_retrieve_response_code($response);
+        if ($response_code < 200 || $response_code >= 300) {
+            $body_text = wp_remote_retrieve_body($response);
+            utm_news_log_error("Ollama API returned status $response_code (attempt $attempt/$max_attempts). Response: $body_text");
+            if ($attempt < $max_attempts) {
+                sleep(2); // Wait 2 seconds before retry
+                continue;
+            }
+            return false;
+        }
+
+        // Parse JSON response
+        $body_text = wp_remote_retrieve_body($response);
+        $data = json_decode($body_text, true);
+
+        if ($data === null) {
+            utm_news_log_error("Ollama API response is not valid JSON (attempt $attempt/$max_attempts): $body_text");
+            if ($attempt < $max_attempts) {
+                sleep(2); // Wait 2 seconds before retry
+                continue;
+            }
+            return false;
+        }
+
+        // Extract summary from response
+        if (isset($data['choices'][0]['message']['content'])) {
+            $content = $data['choices'][0]['message']['content'];
+            if (is_string($content) && !empty($content)) {
+                return trim($content);
+            }
+        }
+
+        utm_news_log_error("Ollama API response missing content (attempt $attempt/$max_attempts). Response: " . wp_json_encode($data));
+        if ($attempt < $max_attempts) {
+            sleep(2); // Wait 2 seconds before retry
+            continue;
+        }
         return false;
     }
 
-    // Build system prompt based on language
-    if ($language === 'ms') {
-        $system_prompt = "You are a helpful assistant. Summarize the following news article in 2-3 sentences in Malay language.";
-    } else {
-        $system_prompt = "You are a helpful assistant. Summarize the following news article in 2-3 sentences in English.";
+    return false;
+}
+
+/**
+ * Call OpenRouter API to generate summary (fallback)
+ * 
+ * Makes HTTP request to OpenRouter's chat completions endpoint.
+ * Uses google-vertex model with temperature 0.7 and max 150 tokens.
+ * 
+ * @param string $prompt        The prompt text (post title + content)
+ * @param string $system_prompt The system prompt
+ * @return string|bool Summary text on success, false on error
+ */
+function utm_news_call_openrouter_api($prompt, $system_prompt) {
+    // Get API key (OpenRouter)
+    $api_key = get_option('utm_news_openai_key');
+    if (empty($api_key)) {
+        utm_news_log_error("OpenRouter API key is empty in utm_news_call_openrouter_api");
+        return false;
     }
 
     // Prepare API request body for OpenRouter using Gemini message format
     $body = array(
-        'model' => 'google/gemini-2.5-flash-lite',
+        'model' => 'google/gemini-3-flash-preview',
         'messages' => array(
             array(
                 'role' => 'system',
@@ -575,7 +695,7 @@ function utm_news_call_openai_api($prompt, $language) {
             )
         ),
         'temperature' => 0.7,
-        'max_tokens' => 150
+        'max_tokens' => 150 // for approximately 150 words
     );
 
     // Prepare API request
@@ -588,7 +708,7 @@ function utm_news_call_openai_api($prompt, $language) {
         'timeout' => 30
     );
 
-    // Make API call to OpenRouter (matching curl example)
+    // Make API call to OpenRouter
     $response = wp_remote_post('https://openrouter.ai/api/v1/chat/completions', $args);
 
     // Check for errors

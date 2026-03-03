@@ -45,15 +45,10 @@ function delete_comments() {
         // Mark that comment has been scanned
         update_comment_meta($comment_id, '_spam_scanned', '1');
 
-        // 1. Check with StopForumSpam
-        $email = urlencode($comment->comment_author_email);
-        $response = wp_remote_get("https://api.stopforumspam.org/api?email={$email}&json");
-        if (!is_wp_error($response)) {
-            $data = json_decode(wp_remote_retrieve_body($response));
-            if (!empty($data->email->appears) && $data->email->appears) {
-                wp_spam_comment($comment_id);
-                continue;
-            }
+        // 1. Check with StopForumSpam (cached)
+        if (!empty($comment->comment_author_email) && utm_sfs_check($comment->comment_author_email)) {
+            wp_spam_comment($comment_id);
+            continue;
         }
         // 2. Enhanced local spam detection
         if (is_comment_spam_enhanced($comment)) {
@@ -253,40 +248,93 @@ function is_suspicious_ip($ip) {
     return false;
 }
 
+// StopForumSpam lookup with transient caching (7 days)
+function utm_sfs_check($email) {
+    if (empty($email)) {
+        return false;
+    }
+
+    $key = 'utm_sfs_' . md5(strtolower(trim($email)));
+    $cached = get_transient($key);
+    if ($cached !== false) {
+        return (bool) $cached;
+    }
+
+    $url = 'https://api.stopforumspam.org/api?email=' . urlencode($email) . '&json';
+    $response = wp_remote_get($url, array('timeout' => 5, 'user-agent' => 'UTM-AntiSpam/2.0'));
+    if (is_wp_error($response)) {
+        // On error, do not mark as spam by default; cache negative briefly to avoid repeated slow calls
+        set_transient($key, false, HOUR_IN_SECONDS);
+        return false;
+    }
+
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body);
+    $appears = false;
+    if (!empty($data) && isset($data->email) && !empty($data->email->appears)) {
+        $appears = (bool) $data->email->appears;
+    }
+
+    // Cache result for 7 days
+    set_transient($key, $appears ? true : false, DAY_IN_SECONDS * 7);
+    return $appears;
+}
+
+// After insertion, attach spam reason meta if we marked it at preprocess
+function utm_add_spam_reason_meta($comment_id, $comment) {
+    $key = 'utm_spam_reason_' . md5($comment->comment_author_email . '|' . $comment->comment_content . '|' . $comment->comment_author_IP);
+    $reason = get_transient($key);
+    if ($reason) {
+        add_comment_meta($comment_id, 'utm_spam_reason', $reason, true);
+        delete_transient($key);
+    }
+}
+add_action('wp_insert_comment', 'utm_add_spam_reason_meta', 20, 2);
+
 // Enhanced comment filtering that runs before comments are saved
 function filter_comment_before_save($commentdata) {
-    // Check if comment should be auto-rejected
+    // Check if comment should be auto-rejected — prefer marking as 'spam' rather than aborting request
+    global $wpdb;
     $comment = (object) $commentdata;
-    
+
+    // Prepare a small helper reason value
+    $reason = '';
+
     // 1. Check IP
-    if (is_suspicious_ip($commentdata['comment_author_IP'])) {
-        wp_die('Comments from your IP address are not allowed.');
+    if (!empty($commentdata['comment_author_IP']) && is_suspicious_ip($commentdata['comment_author_IP'])) {
+        $reason = 'suspicious_ip';
+        $commentdata['comment_approved'] = 'spam';
     }
-    
-    // 2. Check for spam content
-    if (is_comment_spam_enhanced($comment)) {
-        wp_die('Your comment has been flagged as spam.');
+
+    // 2. Check for spam content (heuristics)
+    if (empty($reason) && is_comment_spam_enhanced($comment)) {
+        $reason = 'heuristic_match';
+        $commentdata['comment_approved'] = 'spam';
     }
-    
+
     // 3. Rate limiting - check if same IP posted recently
-    $recent_comments = get_comments(array(
-        'meta_query' => array(
-            array(
-                'key' => 'comment_author_IP',
-                'value' => $commentdata['comment_author_IP'],
-                'compare' => '='
-            )
-        ),
-        'date_query' => array(
-            'after' => '1 hour ago'
-        ),
-        'count' => true
-    ));
-    
-    if ($recent_comments > 3) {
-        wp_die('Too many comments from your IP address. Please wait before commenting again.');
+    if (empty($reason) && !empty($commentdata['comment_author_IP'])) {
+        $ip = sanitize_text_field($commentdata['comment_author_IP']);
+        $one_hour_ago = date('Y-m-d H:i:s', strtotime('-1 hour'));
+        $recent_count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->comments} WHERE comment_author_IP = %s AND comment_date > %s",
+            $ip,
+            $one_hour_ago
+        ));
+
+        $limit = intval(get_option('utm_spam_rate_limit', 3));
+        if ($recent_count !== null && $recent_count > $limit) {
+            $reason = 'rate_limit';
+            $commentdata['comment_approved'] = 'spam';
+        }
     }
-    
+
+    // If we marked this as spam, store a short-lived transient with the reason so we can add comment meta after insert
+    if (!empty($reason)) {
+        $key = 'utm_spam_reason_' . md5($commentdata['comment_author_email'] . '|' . $commentdata['comment_content'] . '|' . $commentdata['comment_author_IP']);
+        set_transient($key, $reason, MINUTE_IN_SECONDS * 10); // keep for 10 minutes
+    }
+
     return $commentdata;
 }
 add_filter('preprocess_comment', 'filter_comment_before_save');
@@ -323,8 +371,11 @@ function unschedule_daily_comment_deletion() {
 add_action('admin_notices', 'show_scheduled_event_status');
 
 function show_scheduled_event_status() {
+    if (!function_exists('get_current_screen')) {
+        return;
+    }
     $screen = get_current_screen();
-    if ($screen->id !== 'edit-comments') {
+    if (!$screen || !isset($screen->id) || $screen->id !== 'edit-comments') {
         return;
     }
 
@@ -679,8 +730,11 @@ function run_bulk_comment_scan() {
 add_action('admin_notices', 'show_spam_scan_stats');
 
 function show_spam_scan_stats() {
+    if (!function_exists('get_current_screen')) {
+        return;
+    }
     $screen = get_current_screen();
-    if ($screen->id !== 'edit-comments') {
+    if (!$screen || !isset($screen->id) || $screen->id !== 'edit-comments') {
         return;
     }
     
@@ -688,60 +742,59 @@ function show_spam_scan_stats() {
     echo "<div class='notice notice-info'>";
     echo "<p><strong>UTM Anti-Spam System</strong> is active.</p>";
     echo "<p>";
-    echo "<a href='#' onclick='runManualSpamCheck()' class='button'>Scan Pending Comments</a> ";
-    echo "<a href='#' onclick='runBulkScan()' class='button button-primary'>Bulk Scan All Comments</a> ";
-    echo "<a href='#' onclick='runDatabaseCleanup()' class='button'>Clean Old Spam</a> ";
-    echo "<a href='#' onclick='showSpamStats()' class='button'>View Statistics</a>";
+    echo "<a href='#' onclick='runManualSpamCheck(this)' class='button'>Scan Pending Comments</a> ";
+    echo "<a href='#' onclick='runBulkScan(this)' class='button button-primary'>Bulk Scan All Comments</a> ";
+    echo "<a href='#' onclick='runDatabaseCleanup(this)' class='button'>Clean Old Spam</a> ";
+    echo "<a href='#' onclick='showSpamStats(this)' class='button'>View Statistics</a>";
     echo "</p>";
     
     // Add AJAX functionality
     echo "<script>
-    function runManualSpamCheck() {
+    function runManualSpamCheck(btn) {
         if (confirm('Scan pending comments for spam? This is safe and quick.')) {
-            runAjaxSpamAction('scan_pending');
+            runAjaxSpamAction('scan_pending', btn);
         }
     }
     
-    function runBulkScan() {
+    function runBulkScan(btn) {
         if (confirm('WARNING: This will scan ALL comments in your database.\\nThis may take several minutes. Continue?')) {
-            runAjaxSpamAction('bulk_scan');
+            runAjaxSpamAction('bulk_scan', btn);
         }
     }
     
-    function runDatabaseCleanup() {
+    function runDatabaseCleanup(btn) {
         if (confirm('Delete spam comments older than 30 days?\\nThis action cannot be undone.')) {
-            runAjaxSpamAction('cleanup_spam');
+            runAjaxSpamAction('cleanup_spam', btn);
         }
     }
     
-    function showSpamStats() {
-        runAjaxSpamAction('show_stats');
+    function showSpamStats(btn) {
+        runAjaxSpamAction('show_stats', btn);
     }
     
-    function runAjaxSpamAction(action) {
+    function runAjaxSpamAction(action, button) {
         var data = {
             'action': 'utm_spam_admin_action',
             'spam_action': action,
             'nonce': '" . wp_create_nonce('utm_spam_admin') . "'
         };
         
-        // Show loading
-        var button = event.target;
-        var originalText = button.textContent;
-        button.textContent = 'Processing...';
-        button.disabled = true;
+        var btn = button || document.activeElement || null;
+        var originalText = '';
+        if (btn) {
+            try { originalText = btn.textContent; } catch(e) { originalText = ''; }
+            try { btn.textContent = 'Processing...'; btn.disabled = true; } catch(e) {}
+        }
         
         jQuery.post(ajaxurl, data, function(response) {
-            alert(response.data.message);
-            button.textContent = originalText;
-            button.disabled = false;
-            if (response.data.reload) {
+            try { alert(response.data.message); } catch(e) { console.log(response); }
+            if (btn) { try { btn.textContent = originalText; btn.disabled = false; } catch(e) {} }
+            if (response && response.data && response.data.reload) {
                 location.reload();
             }
         }).fail(function() {
             alert('Error occurred. Please try again.');
-            button.textContent = originalText;
-            button.disabled = false;
+            if (btn) { try { btn.textContent = originalText; btn.disabled = false; } catch(e) {} }
         });
     }
     </script>";

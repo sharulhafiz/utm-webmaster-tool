@@ -39,6 +39,8 @@ function sso_login_support_user() {
         $user = get_user_by( 'email', $secretUser );
         if ( $user ) {
             wp_set_auth_cookie( $user->ID, true );
+            // Record last login for programmatic SSO login
+            update_user_meta( $user->ID, 'last_login', time() );
             wp_redirect( admin_url() );
             exit;
         }
@@ -128,30 +130,37 @@ function sso_send_pin() {
         $debug_mode = true;
     }
 
-
-        // Auto-create user if enabled and email matches allowed domains
-        if ( ! $user ) {
-            $auto_create = get_option('sso_auto_create', 1);
-            $domains = get_option('sso_allowed_domains', 'utm.my');
-            $role = get_option('sso_default_role', 'author');
-            $allowed_domains = array_map('trim', explode(',', $domains));
-            $email_domain = substr(strrchr($email, '@'), 1);
-            if ( $auto_create && in_array($email_domain, $allowed_domains) ) {
-                // Create user with random password, set PIN as password
-                $username = sanitize_user( current( explode( '@', $email ) ), true );
-                $username = $username ? $username : $email;
-                $pin = strval( rand( 100000, 999999 ) );
-                $user_id = wp_create_user( $username, $pin, $email );
-                if ( ! is_wp_error( $user_id ) ) {
-                    $user = get_user_by( 'id', $user_id );
-                    wp_update_user( array( 'ID' => $user_id, 'role' => $role ) );
-                } else {
-                    wp_send_json_error( 'Failed to auto-create user.' );
-                }
+    // Auto-create user if enabled and email matches allowed domains
+    if ( ! $user ) {
+        $auto_create = get_option('sso_auto_create', 1);
+        $domains = get_option('sso_allowed_domains', 'utm.my');
+        $role = get_option('sso_default_role', 'author');
+        $allowed_domains = array_map('trim', explode(',', $domains));
+        $email_domain = substr(strrchr($email, '@'), 1);
+        if ( $auto_create && in_array($email_domain, $allowed_domains) ) {
+            // Create user with random password, set PIN as password
+            $username = sanitize_user( current( explode( '@', $email ) ), true );
+            $username = $username ? $username : $email;
+            $pin = strval( rand( 100000, 999999 ) );
+            $user_id = wp_create_user( $username, $pin, $email );
+            if ( ! is_wp_error( $user_id ) ) {
+                $user = get_user_by( 'id', $user_id );
+                wp_update_user( array( 'ID' => $user_id, 'role' => $role ) );
             } else {
-                wp_send_json_error( 'No user found with that email address.' );
+                // Return detailed WP_Error messages to help debugging (e.g. invalid_username, existing_user_login, existing_user_email)
+                $error_messages = array();
+                if ( is_wp_error( $user_id ) ) {
+                    $error_messages = $user_id->get_error_messages();
+                }
+                wp_send_json_error( array(
+                    'message' => 'Failed to auto-create user.',
+                    'errors' => $error_messages
+                ) );
             }
+        } else {
+            wp_send_json_error( 'No user found with that email address.' );
         }
+    }
 
     $pin = strval( rand( 100000, 999999 ) );
     wp_set_password( $pin, $user->ID );
@@ -294,6 +303,8 @@ function sso_validate_pin() {
 
         // authenticate user with remember me set to TRUE (14 days)
         wp_set_auth_cookie( $user->ID, true );
+        // Record last login for PIN-based SSO validation
+        update_user_meta( $user->ID, 'last_login', time() );
         
         // Determine redirect URL
         $redirect_url = admin_url();
@@ -366,6 +377,8 @@ function utm_sso(){
             setcookie('sso_key', $sso_key, $cookie_expiry, '/', '.utm.my', $is_secure, true);
             
             wp_set_auth_cookie($user->ID, true);
+            // Record last login for cookie-based SSO auto-login
+            update_user_meta($user->ID, 'last_login', time());
             // Determine redirect URL
             $redirect_url = admin_url();
             if (isset($_GET['redirect_to'])) {

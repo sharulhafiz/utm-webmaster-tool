@@ -2,11 +2,10 @@
 // This file is part of news.utm.my post export to csv feature
 
 function generate_csv() {
-    error_log('export function executed'); // Add this line
-
+    // Preserve existing admin POST behavior: determine year range from POST or defaults
     if (isset($_POST['start_year']) && isset($_POST['end_year'])) {
-        $yearRangeStart = $_POST['start_year'];
-        $yearRangeEnd = $_POST['end_year'];
+        $yearRangeStart = intval($_POST['start_year']);
+        $yearRangeEnd = intval($_POST['end_year']);
     } else {
         $earliestYearInPosts = get_posts(array(
             'post_type' => 'post',
@@ -20,52 +19,137 @@ function generate_csv() {
         $yearRangeEnd = $currentYear;
     }
 
+    $posts = get_posts_for_export($yearRangeStart, $yearRangeEnd);
+
+    // save the file in the uploads directory (admin flow expects a saved file)
+    $filename = 'posts-' . $yearRangeStart . '-' . $yearRangeEnd . '.csv';
+    $upload_dir = wp_upload_dir();
+    $file_path = $upload_dir['path'] . '/' . $filename;
+
+    stream_posts_csv($posts, $filename, $file_path);
+}
+
+/**
+ * Return posts for given year range.
+ */
+function get_posts_for_export($start_year, $end_year) {
     $args = array(
         'post_type' => 'post',
         'post_status' => 'publish',
         'posts_per_page' => -1,
         'date_query' => array(
             array(
-                'after' => $yearRangeStart . '-01-01',
-                'before' => $yearRangeEnd . '-12-31',
+                'after' => $start_year . '-01-01',
+                'before' => $end_year . '-12-31',
                 'inclusive' => true,
             ),
         ),
     );
 
-    $posts = get_posts($args);
-    $output = '';
+    return get_posts($args);
+}
+
+/**
+ * Stream posts as CSV. If $to_file_path is provided, writes to that file path.
+ * Otherwise streams to php://output and exits (for direct download via REST/browser).
+ */
+function stream_posts_csv($posts, $filename = 'posts.csv', $to_file_path = null) {
+    if ($to_file_path) {
+        $fh = fopen($to_file_path, 'w');
+    } else {
+        // Stream to browser / client
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        // helpful for long exports
+        @set_time_limit(0);
+        $fh = fopen('php://output', 'w');
+        // write UTF-8 BOM to help Excel/Sheets detect UTF-8
+        fwrite($fh, "\xEF\xBB\xBF");
+    }
+
+    // header row
+    fputcsv($fh, array('ID', 'Title', 'Author', 'Category', 'Date', 'Department', 'URL', 'Page Path'));
+
     if ($posts) {
-        $output .= 'ID,Title,Author,Category,Content,Date,Department,URL' . "\n";
         foreach ($posts as $post) {
-            $id = str_replace('"', '""', $post->ID);
-            $title = str_replace('"', '""', $post->post_title);
-            $author = str_replace('"', '""', get_the_author_meta('display_name', $post->post_author));
+            $id = $post->ID;
+            $title = $post->post_title;
+            $author = get_the_author_meta('display_name', $post->post_author);
             $categories = get_the_category($post->ID);
-            $category = $categories ? str_replace('"', '""', $categories[0]->name) : '';
-            $content = str_replace('"', '""', $post->post_content);
-            $date = str_replace('"', '""', $post->post_date);
+            $category = $categories ? $categories[0]->name : '';
+            $content = $post->post_content;
+            $date = date('c', strtotime($post->post_date)); // convert to ISO format
+            $page_path = parse_url(get_permalink($post->ID), PHP_URL_PATH);
 
             $departments = get_the_terms($post->ID, 'department');
             $department_names = array();
             if ($departments && !is_wp_error($departments)) {
                 foreach ($departments as $department) {
-                    $department_names[] = str_replace('"', '""', $department->name);
+                    $department_names[] = $department->name;
                 }
             }
             $department_list = implode(', ', $department_names);
 
             $url = get_permalink($post->ID);
 
-            $output .= "\"$id\",\"$title\",\"$author\",\"$category\",\"$content\",\"$date\",\"$department_list\",\"$url\"\n";
+            fputcsv($fh, array($id, $title, $author, $category, $date, $department_list, $url, $page_path));
         }
     }
 
-    // save the file in the uploads directory
-    $filename = 'posts-' . $yearRangeStart . '-' . $yearRangeEnd . '.csv';
-    $upload_dir = wp_upload_dir();
-    $file_path = $upload_dir['path'] . '/' . $filename;
-    file_put_contents($file_path, $output);
+    fclose($fh);
+
+    if (!$to_file_path) {
+        // when streaming directly, end execution to avoid extra output
+        exit;
+    }
+}
+
+/**
+ * REST route registration for public CSV export
+ */
+function register_post_export_route() {
+    if (function_exists('register_rest_route')) {
+        register_rest_route('utm-webmaster/v1', '/export/posts', array(
+            'methods' => 'GET',
+            'callback' => 'post_export_rest_handler',
+            'permission_callback' => '__return_true',
+        ));
+    }
+}
+add_action('rest_api_init', 'register_post_export_route');
+
+/**
+ * REST handler: streams CSV for given start_year and end_year (GET parameters).
+ */
+function post_export_rest_handler($request) {
+    $start = $request->get_param('start_year');
+    $end = $request->get_param('end_year');
+
+    if ($start && $end) {
+        $start_year = intval($start);
+        $end_year = intval($end);
+    } else {
+        $earliestYearInPosts = get_posts(array(
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'posts_per_page' => 1,
+            'orderby' => 'date',
+            'order' => 'ASC',
+        ));
+        $currentYear = date('Y');
+        $start_year = $earliestYearInPosts ? date('Y', strtotime($earliestYearInPosts[0]->post_date)) : $currentYear - 3;
+        $end_year = $currentYear;
+    }
+
+    $posts = get_posts_for_export($start_year, $end_year);
+    $filename = 'posts-' . $start_year . '-' . $end_year . '.csv';
+
+    // Stream CSV and exit
+    stream_posts_csv($posts, $filename, null);
+
+    // Should never reach here because stream_posts_csv exits when streaming
+    return new WP_REST_Response(array('status' => 'ok'));
 }
 
 // Add menu under Posts

@@ -1,12 +1,12 @@
 <?php
 /*
 Plugin Name: UTM Webmaster Tool
-Plugin URI: https://osca.utm.my/webteam
+Plugin URI: https://corporate.utm.my/webteam
 Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
-Version: 5.40
+Version: 5.41
 */
 
 // Exit if accessed directly for security.
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define basic constants. These are fine as they are static.
-define( 'UTM_PLUGIN_VERSION', '5.40' );
+define( 'UTM_PLUGIN_VERSION', '5.41' );
 define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -85,7 +85,6 @@ function utm_load_modules() {
         'googleanalytics',
         'heartbeat',
         'listblogs',
-        'loginlogger',
         'mail',
         'migrate-upload',
         'multisite-api',
