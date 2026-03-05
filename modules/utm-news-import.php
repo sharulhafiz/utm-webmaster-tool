@@ -226,20 +226,9 @@ function cleanup_old_imported_posts($category, $department_id = '', $source_cate
         $posts_to_delete = array_slice($all_post_ids, $keep_with_buffer);
         
         foreach ($posts_to_delete as $post_id) {
-            // Delete post and its attachments
-            wp_delete_post($post_id, true); // true = force delete (skip trash)
-            
-            // Clean up orphaned attachments
-            $attachments = get_posts(array(
-                'post_type' => 'attachment',
-                'post_parent' => $post_id,
-                'posts_per_page' => -1,
-                'fields' => 'ids'
-            ));
-            
-            foreach ($attachments as $attachment_id) {
-                wp_delete_attachment($attachment_id, true);
-            }
+            // Move old imported posts to Trash (recoverable) instead of
+            // permanent deletion.
+            wp_trash_post($post_id);
         }
         
         $deleted_count = count($posts_to_delete);
