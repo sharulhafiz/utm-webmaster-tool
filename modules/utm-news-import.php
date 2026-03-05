@@ -484,6 +484,7 @@ add_shortcode('utm_news_department', function($atts) {
     $user_atts = $atts; // keep original user-provided attributes to detect explicit values
     // Parse attributes with defaults
     $atts = shortcode_atts(array(
+        'id' => '', // Legacy alias (mapped to department_id)
         'department_id' => '', // Department ID (optional if source_category is used)
         'source_category' => '', // Source category slug from news.utm.my (optional if department_id is used)
         'category_name' => 'News',
@@ -495,6 +496,12 @@ add_shortcode('utm_news_department', function($atts) {
         'target' => '_blank', // Link target
         'display' => 'inline' // Display mode: 'inline' or 'import'
     ), $atts);
+
+    // Backward compatibility for legacy usage:
+    // [utm_news_department id="3058"]
+    if (empty($atts['department_id']) && !empty($atts['id'])) {
+        $atts['department_id'] = $atts['id'];
+    }
 
     // If posts_per_page wasn't explicitly provided by the user, sync it to
     // the import_count so display matches what we fetch by default.

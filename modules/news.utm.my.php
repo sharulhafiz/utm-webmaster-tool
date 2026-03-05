@@ -62,89 +62,14 @@ function import_utm_news_posts($department_id) {
     return true;
 }
 
-// Add shortcode [utm_news_department] to display latest 3 posts from a specific department
-add_shortcode('utm_news_department', function($atts) {
-    // Parse attributes
-    $atts = shortcode_atts(array(
-        'id' => '3058', // Default department ID
-    ), $atts);
-
-    // Import latest posts
-    import_utm_news_posts($atts['id']);
-
-    // Get all posts from local WordPress
-    $posts = get_posts(array(
-        'category_name' => 'mjiit-news',
-        'posts_per_page' => 3,
-        'orderby' => 'date',
-        'order' => 'DESC'
-    ));
-
-    if (empty($posts)) {
-        return '<p>No posts found.</p>';
-    }
-
-    // Build output
-    $output = '<div class="utm-news-department">';
-    
-    foreach ($posts as $post) {
-        $date = date('F j, Y', strtotime($post->post_date));
-        $original_url = get_post_meta($post->ID, 'utm_news_original_url', true);
-        $link = $original_url ? $original_url : get_permalink($post->ID);
-        $category = get_the_category($post->ID) ? get_the_category($post->ID)[0]->name : 'Uncategorized';
-
-        $output .= sprintf(
-            '<div class="news-item">
-                <h3><a href="%s" target="_blank">%s</a></h3>
-                <div class="news-meta">%s <span class="category">%s</span></div>
-            </div>',
-            esc_url($link),
-            esc_html($post->post_title),
-            esc_html($date),
-            esc_html($category)
-        );
-    }
-    
-    $output .= '</div>';
-
-    // Add basic CSS
-    $output .= '
-    <style>
-        .utm-news-department {
-            margin: 20px 0;
-        }
-        .utm-news-department .news-item {
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #eee;
-        }
-        .utm-news-department .news-item:last-child {
-            border-bottom: none;
-        }
-        .utm-news-department .news-meta {
-            color: #666;
-            font-size: 0.9em;
-            margin: 5px 0;
-        }
-        .utm-news-department .category {
-            display: inline-block;
-            font-size: 0.8em;
-            color: #fff;
-            background-color:#009154;
-            padding: 0px 8px;
-            border-radius: 12px;
-            margin-top: 5px;
-            margin-left: 10px;
-        }
-    </style>';
-
-    return $output;
-});
+// [utm_news_department] is registered in modules/utm-news-import.php as the
+// canonical implementation to avoid duplicate shortcode overrides.
 
 /***************************************************************
     The code after this point will only run on news.utm.my
 ***************************************************************/
-if ($_SERVER['HTTP_HOST'] !== 'news.utm.my') {
+$utm_http_host = isset($_SERVER['HTTP_HOST']) ? (string) $_SERVER['HTTP_HOST'] : '';
+if ($utm_http_host !== 'news.utm.my') {
     return;
 }
 
