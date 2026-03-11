@@ -4,14 +4,17 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Hook into WordPress to add Open Graph meta tags
+// Hook into WordPress head output.
 add_action('wp_head', 'utm_seo', 5);
 
 /**
- * Add Open Graph meta tags to ensure WhatsApp displays the thumbnail correctly.
+ * Main SEO bootstrap for head output.
  */
 function utm_seo() {
     if ((!is_admin())) {
+        // Output Open Graph and Twitter Card metadata.
+        utm_output_social_meta_tags();
+
         global $post;
 
         // Ensure $post is an object
@@ -35,6 +38,111 @@ function utm_seo() {
         
         // Enqueue outgoing link tracking script
         enqueue_outgoing_link_tracking();
+    }
+}
+
+/**
+ * Output Open Graph + Twitter Card metadata.
+ *
+ * This supports social previews (WhatsApp, Facebook, X/Twitter, etc.).
+ * Skips output when popular SEO plugins are active to avoid duplicate tags.
+ */
+function utm_output_social_meta_tags() {
+    if (is_admin() || is_feed()) {
+        return;
+    }
+
+    // Avoid duplicate tags if another SEO plugin already handles Open Graph.
+    if (defined('WPSEO_VERSION') || defined('RANK_MATH_VERSION') || defined('AIOSEO_VERSION')) {
+        return;
+    }
+
+    $site_name = wp_strip_all_tags(get_bloginfo('name'));
+    $locale = get_locale();
+    $type = 'website';
+    $title = wp_strip_all_tags(wp_get_document_title());
+    $description = wp_strip_all_tags(get_bloginfo('description'));
+    $url = home_url('/');
+    $image = '';
+    $image_width = 0;
+    $image_height = 0;
+
+    if (is_singular()) {
+        global $post;
+
+        if (is_object($post) && isset($post->ID)) {
+            $type = 'article';
+            $title = wp_strip_all_tags(get_the_title($post->ID));
+            $url = get_permalink($post->ID);
+
+            $excerpt = trim((string) get_the_excerpt($post->ID));
+            if (!empty($excerpt)) {
+                $description = wp_strip_all_tags($excerpt);
+            } else {
+                $content = wp_strip_all_tags(strip_shortcodes((string) $post->post_content));
+                $description = wp_trim_words($content, 35, '...');
+            }
+
+            if (has_post_thumbnail($post->ID)) {
+                $thumbnail_id = get_post_thumbnail_id($post->ID);
+                $preferred_sizes = array('medium_large', 'large', 'full');
+
+                foreach ($preferred_sizes as $size) {
+                    $image_data = wp_get_attachment_image_src($thumbnail_id, $size);
+                    if (is_array($image_data) && !empty($image_data[0])) {
+                        $image = $image_data[0];
+                        $image_width = isset($image_data[1]) ? (int) $image_data[1] : 0;
+                        $image_height = isset($image_data[2]) ? (int) $image_data[2] : 0;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback image: site icon.
+    if (empty($image)) {
+        $site_icon = get_site_icon_url(512);
+        if (!empty($site_icon)) {
+            $image = $site_icon;
+            $image_width = 512;
+            $image_height = 512;
+        }
+    }
+
+    if (empty($description)) {
+        $description = $site_name;
+    }
+
+    // Keep metadata within common platform limits.
+    $title = trim(wp_html_excerpt($title, 200, ''));
+    $description = trim(wp_html_excerpt($description, 300, ''));
+
+    echo "\n";
+    echo '<meta property="og:site_name" content="' . esc_attr($site_name) . '">' . "\n";
+    echo '<meta property="og:locale" content="' . esc_attr($locale) . '">' . "\n";
+    echo '<meta property="og:type" content="' . esc_attr($type) . '">' . "\n";
+    echo '<meta property="og:title" content="' . esc_attr($title) . '">' . "\n";
+    echo '<meta property="og:description" content="' . esc_attr($description) . '">' . "\n";
+    echo '<meta property="og:url" content="' . esc_url($url) . '">' . "\n";
+
+    if (!empty($image)) {
+        echo '<meta property="og:image" content="' . esc_url($image) . '">' . "\n";
+        echo '<meta property="og:image:secure_url" content="' . esc_url($image) . '">' . "\n";
+        if ($image_width > 0) {
+            echo '<meta property="og:image:width" content="' . esc_attr($image_width) . '">' . "\n";
+        }
+        if ($image_height > 0) {
+            echo '<meta property="og:image:height" content="' . esc_attr($image_height) . '">' . "\n";
+        }
+    }
+
+    echo '<meta name="twitter:card" content="' . esc_attr(!empty($image) ? 'summary_large_image' : 'summary') . '">' . "\n";
+    echo '<meta name="twitter:title" content="' . esc_attr($title) . '">' . "\n";
+    echo '<meta name="twitter:description" content="' . esc_attr($description) . '">' . "\n";
+
+    if (!empty($image)) {
+        echo '<meta name="twitter:image" content="' . esc_url($image) . '">' . "\n";
     }
 }
 

@@ -33,7 +33,7 @@ function change_network_admin_email() {
 
 function append_network_admin_email_form() {
   add_submenu_page(
-    'settings.php', // Parent slug
+    'utm-webmaster-dashboard', // Parent slug
     'Update Network Admin Email', // Page title
     'Update Network Admin Email', // Menu title
     'manage_network_options', // Capability

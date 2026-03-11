@@ -56,13 +56,65 @@ php tests/run-phase6-tests.php
 
 ### Validation Steps
 When making changes:
-1. Verify PHP syntax: `php -l file.php`
-2. Test in a WordPress Multisite environment (staging recommended)
+1. Verify PHP syntax **inside Docker PHP container** (not on host shell).
+   - Preferred: `docker compose exec <php_service> php -l /path/to/file.php`
+   - Optional wrapper approach: use `scripts/php-lint-in-container.sh` to always route linting through container PHP.
+2. Test on the **target production site(s)** directly (no staging clone in this environment)
 3. Check WordPress debug.log for errors: Enable `WP_DEBUG` in wp-config.php
 4. For specific modules, use the test scripts in `/tests` directory
 
+### Plugin Change Validation Workflow (Production-Targeted)
+
+This environment runs 4 live sites that consume this plugin:
+- `www.utm.my` (multisite)
+- `people.utm.my` (multisite)
+- `news.utm.my` (single-site)
+- `events.utm.my` (single-site)
+
+Not all modules are used by all sites. **Validate on the actual target site(s)** where the affected module is used.
+
+#### Core rule
+- Do **not** recreate full production containers for routine plugin PHP edits.
+- Use the smallest-impact validation sequence first.
+
+#### Validation sequence after plugin edits
+1. Apply plugin code change.
+2. If this is a plugin update/release change, update:
+   - `changelog.md` with clear entry of changes,
+   - plugin version in `index.php` (`Version:` header and `UTM_PLUGIN_VERSION`).
+3. Run syntax checks for touched PHP files using container PHP (never host PHP).
+4. Trigger targeted cache refresh:
+   - module/object/transient cache (targeted first),
+   - nginx/FastCGI cache purge for affected routes,
+   - opcache reset (or PHP service restart if required).
+5. Run smoke checks on affected flows:
+   - public endpoint/page,
+   - relevant wp-admin screen,
+   - REST/AJAX endpoints touched by the change,
+   - role-based behavior (if auth logic changed).
+6. Watch logs (nginx + PHP + WordPress debug) for immediate regressions.
+
+#### Cache/opcache reset ladder (least disruptive first)
+1. Targeted app/object cache clear
+2. Targeted nginx/FastCGI cache clear
+3. Opcache reset
+4. Restart PHP container/service only
+5. Restart nginx only if routing/cache behavior still stale
+6. Full stack/container recreate only for runtime/config/image changes
+
+#### Site-targeted testing policy
+- If module is site-specific, test only that site first.
+- If module is shared/core (`sso`, `function`, `timezone`, etc.), test at least:
+  - one multisite (`people` or `www`), and
+  - one single site (`news` or `events`).
+
+#### Rollback rule
+- Keep changes in small commits.
+- If smoke checks fail, rollback immediately and re-run the same validation ladder.
+
 ### Common Pitfalls
 - **Don't run composer install or npm install** - they don't exist here
+- **Don't run `php -l` on host shell** - host may not have PHP; always lint via Docker PHP container
 - **Opcache issues:** Some modules call `opcache_reset()` to force cache clears
 - **Multisite context:** Always be aware which site context you're in (main site vs subsites)
 - **Cache clearing:** WordPress object cache and transients are used heavily for performance
@@ -192,10 +244,11 @@ Many modules have accompanying `.md` files documenting their features:
 
 ### Modifying Existing Modules
 1. **Always backup first** - plugin has backup module for a reason
-2. Test changes in staging environment, not production
+2. Test changes on the target production site(s) using the validation workflow above
 3. Enable WP_DEBUG to see warnings/errors
 4. Check if module has documentation in `/modules/*.md` files
 5. Verify changes don't affect other sites in the network
+6. For plugin updates/releases, update `changelog.md` and bump plugin version in `index.php`
 
 ### Debugging
 1. Enable debugging in WordPress:
@@ -261,10 +314,12 @@ delete_user_meta($user_id, 'utm_cached_admin_url');
 1. **Identify the module** - Find the relevant PHP file in `/modules`
 2. **Read the module documentation** - Check for corresponding `.md` file
 3. **Understand WordPress context** - Is this network-wide or site-specific?
-4. **Test PHP syntax** - Run `php -l filename.php` before committing
+4. **Test PHP syntax in container** - Run `docker compose exec <php_service> php -l /path/to/file.php` before committing
 5. **Verify security** - Check for proper sanitization and capability checks
 6. **Update documentation** - If changing behavior significantly, update the `.md` file
-7. **Don't add build tools** - No need for npm, composer, webpack, etc.
+7. **For plugin updates, update release metadata** - update `changelog.md` and bump version fields in `index.php`
+8. **Commit and push after each completed task** - Once validation/smoke checks pass for the task, create a focused commit and push it to the current branch immediately.
+9. **Don't add build tools** - No need for npm, composer, webpack, etc.
 
 ### When Debugging
 1. Enable WP_DEBUG in wp-config.php
@@ -281,11 +336,11 @@ When looking for functionality:
 4. **Look at hooks** - `grep -r "add_action\|add_filter" modules/`
 
 ### Testing Strategy
-1. Syntax check: `php -l file.php`
+1. Syntax check in container: `docker compose exec <php_service> php -l /path/to/file.php`
 2. Manual testing in WordPress admin
 3. Check WordPress debug.log for errors
 4. Use test scripts in `/tests` if available for the feature
-5. Test on staging site first (people.utm.my is production with 3000+ sites)
+5. Test on target production site(s) directly, then verify unaffected core flows on one additional site type (multisite/single-site)
 
 ### Trust These Instructions
 **This information has been validated.** Only search the codebase if:

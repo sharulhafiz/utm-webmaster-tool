@@ -2,7 +2,7 @@
 // ==================== Fix User Role ====================
 // add to menu in site
 function register_fixUserRole_admin_menu(){
-	add_submenu_page('users.php', 'Fix User Role', 'Fix User Role', 'manage_options', 'restore_default_user_roles', 'restore_default_user_roles');
+    add_submenu_page('utm-webmaster-dashboard', 'Fix User Role', 'Fix User Role', 'manage_options', 'restore_default_user_roles', 'restore_default_user_roles');
 }
 add_action('admin_menu', 'register_fixUserRole_admin_menu');
 

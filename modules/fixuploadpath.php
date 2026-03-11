@@ -113,7 +113,7 @@
 function utm_add_site_submenu_page()
 {
 	add_submenu_page(
-		'tools.php', // Parent slug: Site Tools
+        'utm-webmaster-dashboard', // Parent slug: UTM Plugin
 		'Fix Upload Path',
 		'Fix Upload Path',
 		'manage_options',
@@ -1469,7 +1469,7 @@ function utm_media_debug() {
     }
     
     if ($legacy_guid > 0 || $legacy_attached_file > 0) {
-        $issues[] = '⚠️ <strong>Legacy paths detected in database!</strong> Go to <a href="' . admin_url('tools.php?page=fix-media') . '">Tools → Fix Upload Path</a> to migrate database paths.';
+        $issues[] = '⚠️ <strong>Legacy paths detected in database!</strong> Go to <a href="' . admin_url('admin.php?page=fix-media') . '">UTM Plugin → Fix Upload Path</a> to migrate database paths.';
     }
     
     if ($missing_metadata > 0) {
@@ -1509,7 +1509,7 @@ function utm_media_debug() {
         $percentage = round(($missing_count / count($sample_check)) * 100);
         
         if ($in_old_location_count > 0) {
-            $issues[] = '⚠️ <strong>FILE MIGRATION INCOMPLETE!</strong> Out of last 50 images checked, ' . $in_old_location_count . ' files are still in old blogs.dir location and not copied to new location. Go to <a href="' . admin_url('tools.php?page=fix-media') . '">Tools → Fix Upload Path</a> and run <strong>File Migration</strong>.';
+            $issues[] = '⚠️ <strong>FILE MIGRATION INCOMPLETE!</strong> Out of last 50 images checked, ' . $in_old_location_count . ' files are still in old blogs.dir location and not copied to new location. Go to <a href="' . admin_url('admin.php?page=fix-media') . '">UTM Plugin → Fix Upload Path</a> and run <strong>File Migration</strong>.';
         }
         
         if ($completely_missing_count > 0) {
@@ -1532,7 +1532,7 @@ function utm_media_debug() {
     // Quick actions
     echo '<h2>🔧 Quick Actions</h2>';
     echo '<div style="background: #f8f9fa; padding: 15px; margin: 10px 0;">';
-    echo '<p><a href="' . admin_url('tools.php?page=fix-media') . '" class="button button-primary">Go to Migration Tool</a> ';
+    echo '<p><a href="' . admin_url('admin.php?page=fix-media') . '" class="button button-primary">Go to Migration Tool</a> ';
     echo '<a href="' . admin_url('upload.php') . '" class="button button-secondary">Back to Media Library</a> ';
     echo '<a href="?page=media-debug" class="button button-secondary">Refresh Diagnostics</a></p>';
     echo '</div>';

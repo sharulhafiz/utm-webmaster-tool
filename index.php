@@ -6,7 +6,7 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
-Version: 5.41
+Version: 5.42
 */
 
 // Exit if accessed directly for security.
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define basic constants. These are fine as they are static.
-define( 'UTM_PLUGIN_VERSION', '5.41' );
+define( 'UTM_PLUGIN_VERSION', '5.42' );
 define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -54,14 +54,13 @@ function utm_plugin_activation_hook() {
 // Register the activation hook.
 register_activation_hook( __FILE__, 'utm_plugin_activation_hook' );
 
-
 /**
- * Load all plugin modules.
- * For better performance, avoid glob() and list files explicitly.
+ * Return all plugin module slugs in load order.
+ *
+ * @return array
  */
-function utm_load_modules() {
-    $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
-    $modules = array(
+function utm_get_all_module_slugs() {
+    return array(
         'dashboard',
         'analytics',
         'antispam',
@@ -75,6 +74,7 @@ function utm_load_modules() {
         'delete_et_cache_divi',
         'disableplugin',
         'debug',
+        'dotx-upload-compat',
         'embed_googledocs',
         'events',
         'fixuploadpath',
@@ -105,12 +105,112 @@ function utm_load_modules() {
         'updatenetworkadminemail',
         'usermeta',
         'utmlenses',
-        'utm-news-import'
+        'utm-news-import',
+        'disable-rss-feeds',
+        'divi-redis-cache',
     );
+}
 
-    // This is still using glob(), but a better long-term solution is a static array.
-    // However, moving it into a function is already an improvement.
+/**
+ * Return protected module slugs that cannot be disabled.
+ *
+ * @return array
+ */
+function utm_get_protected_module_slugs() {
+    return array(
+        'dashboard',
+        'function',
+        'mail',
+        'performance-patch',
+        'sso',
+        'timezone',
+    );
+}
+
+/**
+ * Get persisted module states.
+ *
+ * @return array
+ */
+function utm_get_module_states() {
+    $all_modules = utm_get_all_module_slugs();
+    $states = get_site_option( 'utm_webmaster_module_states', array() );
+
+    if ( ! is_array( $states ) ) {
+        $states = array();
+    }
+
+    // Default every known module to active.
+    foreach ( $all_modules as $module_slug ) {
+        if ( ! array_key_exists( $module_slug, $states ) ) {
+            $states[ $module_slug ] = 1;
+        }
+    }
+
+    // Protected modules are always active.
+    foreach ( utm_get_protected_module_slugs() as $protected_module ) {
+        $states[ $protected_module ] = 1;
+    }
+
+    return $states;
+}
+
+/**
+ * Determine whether a module is active.
+ *
+ * @param string $module_slug Module slug.
+ * @return bool
+ */
+function utm_is_module_active( $module_slug ) {
+    $states = utm_get_module_states();
+
+    return ! empty( $states[ $module_slug ] );
+}
+
+/**
+ * Persist module active/inactive state.
+ *
+ * @param string $module_slug Module slug.
+ * @param bool   $is_active   Active flag.
+ * @return bool
+ */
+function utm_set_module_state( $module_slug, $is_active ) {
+    $all_modules = utm_get_all_module_slugs();
+
+    if ( ! in_array( $module_slug, $all_modules, true ) ) {
+        return false;
+    }
+
+    if ( in_array( $module_slug, utm_get_protected_module_slugs(), true ) ) {
+        return false;
+    }
+
+    $states = utm_get_module_states();
+    $desired_state = $is_active ? 1 : 0;
+
+    if ( isset( $states[ $module_slug ] ) && (int) $states[ $module_slug ] === $desired_state ) {
+        return true;
+    }
+
+    $states[ $module_slug ] = $is_active ? 1 : 0;
+
+    return update_site_option( 'utm_webmaster_module_states', $states );
+}
+
+
+/**
+ * Load all plugin modules.
+ * For better performance, avoid glob() and list files explicitly.
+ */
+function utm_load_modules() {
+    $modules_dir = UTM_WEBMASTER_PLUGIN_PATH . 'modules/';
+    $modules = utm_get_all_module_slugs();
+
     foreach ( $modules as $module ) {
+        if ( ! utm_is_module_active( $module ) ) {
+            continue;
+        }
+
         $file = $modules_dir . $module . '.php';
         if ( file_exists( $file ) ) {
             require_once $file;

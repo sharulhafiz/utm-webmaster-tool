@@ -99,7 +99,7 @@ function utm_news_log_error($message) {
  */
 function utm_news_register_settings_menu() {
     add_submenu_page(
-        'options-general.php',
+        'utm-webmaster-dashboard',
         'News Settings',
         'News Settings',
         'manage_options',

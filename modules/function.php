@@ -1,7 +1,11 @@
 <?php
 // Disable all RSS, RDF, and Atom feeds
 function disable_feeds() {
-    wp_die( __('No feed available, please visit the homepage!') );
+    wp_die(
+        __('No feed available, please visit the homepage!'),
+        __('Feed Disabled'),
+        array('response' => 410)
+    );
 }
 add_action('do_feed', 'disable_feeds', 1);
 add_action('do_feed_rdf', 'disable_feeds', 1);

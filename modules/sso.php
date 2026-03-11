@@ -18,6 +18,63 @@ if ( ! function_exists('defined') || ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Detect if current request should be treated as HTTPS (proxy-aware).
+ *
+ * @return bool
+ */
+function sso_is_secure_request() {
+    if ( is_ssl() ) {
+        return true;
+    }
+
+    if ( ! empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) {
+        $forwarded_proto = strtolower( trim( (string) $_SERVER['HTTP_X_FORWARDED_PROTO'] ) );
+        return strpos( $forwarded_proto, 'https' ) !== false;
+    }
+
+    return false;
+}
+
+/**
+ * Set shared SSO cookie for all *.utm.my sites.
+ *
+ * @param string $name Cookie name.
+ * @param string $value Cookie value.
+ * @param int    $expiry Expiry timestamp.
+ * @param bool   $http_only HttpOnly flag.
+ * @return void
+ */
+function sso_set_shared_cookie( $name, $value, $expiry, $http_only ) {
+    $is_secure = sso_is_secure_request();
+
+    if ( PHP_VERSION_ID >= 70300 ) {
+        setcookie( $name, $value, array(
+            'expires'  => (int) $expiry,
+            'path'     => '/',
+            'domain'   => '.utm.my',
+            'secure'   => $is_secure,
+            'httponly' => (bool) $http_only,
+            'samesite' => 'Lax',
+        ) );
+
+        return;
+    }
+
+    setcookie( $name, $value, (int) $expiry, '/', '.utm.my', $is_secure, (bool) $http_only );
+}
+
+/**
+ * Clear shared SSO cookie for all *.utm.my sites.
+ *
+ * @param string $name Cookie name.
+ * @param bool   $http_only HttpOnly flag.
+ * @return void
+ */
+function sso_clear_shared_cookie( $name, $http_only ) {
+    sso_set_shared_cookie( $name, '', time() - 3600, $http_only );
+}
+
+/**
  * Logs in the support user directly if the correct secret is provided.
  *
  * @return void
@@ -289,17 +346,23 @@ function sso_validate_pin() {
             )
         ));
 
+        if ( is_wp_error( $response ) ) {
+            wp_send_json_error( 'Unable to contact SSO server. Please try again.' );
+        }
+
         // Decode the JSON response
-        $response_body = json_decode($response['body'], true);
+        $response_body = json_decode( wp_remote_retrieve_body( $response ), true );
 
         // save response as sso_key
-        $sso_key = isset($response_body) ? $response_body['sso_key'] : '';
+        $sso_key = ( isset( $response_body['sso_key'] ) && is_string( $response_body['sso_key'] ) ) ? $response_body['sso_key'] : '';
+        if ( empty( $sso_key ) ) {
+            wp_send_json_error( 'Failed to initialize SSO session key.' );
+        }
 
         // set cookie email and sso_key with proper flags (14 days = 1209600 seconds)
         $cookie_expiry = time() + 1209600; // 14 days
-        $is_secure = is_ssl(); // Use secure flag if HTTPS
-        setcookie('email', $email, $cookie_expiry, '/', '.utm.my', $is_secure, false);
-        setcookie('sso_key', $sso_key, $cookie_expiry, '/', '.utm.my', $is_secure, true); // httponly for sso_key
+        sso_set_shared_cookie('email', $email, $cookie_expiry, false);
+        sso_set_shared_cookie('sso_key', $sso_key, $cookie_expiry, true); // httponly for sso_key
 
         // authenticate user with remember me set to TRUE (14 days)
         wp_set_auth_cookie( $user->ID, true );
@@ -367,14 +430,18 @@ function utm_sso(){
         }
         
         // Decode the JSON response
-        $response_body = json_decode($response['body'], true);
+        $response_body = json_decode( wp_remote_retrieve_body( $response ), true );
+        $response_message = isset( $response_body['message'] ) ? $response_body['message'] : '';
 
-        if ($response_body['message'] == 'OK' && $user) {
+        if ( ( $response_message === 'OK' || $response_message === 'REFRESH' ) && $user ) {
+            if ( $response_message === 'REFRESH' && ! empty( $response_body['sso_key'] ) ) {
+                $sso_key = sanitize_text_field( $response_body['sso_key'] );
+            }
+
             // Refresh cookie expiry on successful validation (14 days)
             $cookie_expiry = time() + 1209600;
-            $is_secure = is_ssl();
-            setcookie('email', $email, $cookie_expiry, '/', '.utm.my', $is_secure, false);
-            setcookie('sso_key', $sso_key, $cookie_expiry, '/', '.utm.my', $is_secure, true);
+            sso_set_shared_cookie('email', $email, $cookie_expiry, false);
+            sso_set_shared_cookie('sso_key', $sso_key, $cookie_expiry, true);
             
             wp_set_auth_cookie($user->ID, true);
             // Record last login for cookie-based SSO auto-login
@@ -389,9 +456,8 @@ function utm_sso(){
             exit;
         } else {
             // SSO key is invalid, clear cookies and force re-login
-            $is_secure = is_ssl();
-            setcookie('email', '', time() - 3600, '/', '.utm.my', $is_secure, false);
-            setcookie('sso_key', '', time() - 3600, '/', '.utm.my', $is_secure, true);
+            sso_clear_shared_cookie('email', false);
+            sso_clear_shared_cookie('sso_key', true);
         }
     } else {
         // console log
@@ -443,22 +509,25 @@ function utm_sso_validate_session() {
         return; // Network error, don't force logout
     }
     
-    $response_body = json_decode($response['body'], true);
+    $response_body = json_decode( wp_remote_retrieve_body( $response ), true );
+    $response_message = isset( $response_body['message'] ) ? $response_body['message'] : '';
     
-    if ( isset($response_body['message']) && $response_body['message'] == 'OK' ) {
+    if ( $response_message === 'OK' || $response_message === 'REFRESH' ) {
+        if ( $response_message === 'REFRESH' && ! empty( $response_body['sso_key'] ) ) {
+            $sso_key = sanitize_text_field( $response_body['sso_key'] );
+        }
+
         // SSO is still valid, refresh cookies and set validation transient
         $cookie_expiry = time() + 1209600; // 14 days
-        $is_secure = is_ssl();
-        setcookie('email', $email, $cookie_expiry, '/', '.utm.my', $is_secure, false);
-        setcookie('sso_key', $sso_key, $cookie_expiry, '/', '.utm.my', $is_secure, true);
+        sso_set_shared_cookie('email', $email, $cookie_expiry, false);
+        sso_set_shared_cookie('sso_key', $sso_key, $cookie_expiry, true);
         
         // Mark as validated for next hour
         set_transient($validation_key, true, HOUR_IN_SECONDS);
     } else {
         // SSO key is invalid, logout user and clear cookies
-        $is_secure = is_ssl();
-        setcookie('email', '', time() - 3600, '/', '.utm.my', $is_secure, false);
-        setcookie('sso_key', '', time() - 3600, '/', '.utm.my', $is_secure, true);
+        sso_clear_shared_cookie('email', false);
+        sso_clear_shared_cookie('sso_key', true);
         wp_logout();
         wp_redirect( wp_login_url() );
         exit;
@@ -536,9 +605,8 @@ $utm_login_logger = new UTMLoginLogger();
 add_action('wp_logout', 'sso_clear_cookies');
 function sso_clear_cookies() {
     // Clear the SSO cookies when user logs out
-    $is_secure = is_ssl();
-    setcookie('email', '', time() - 3600, '/', '.utm.my', $is_secure, false);
-    setcookie('sso_key', '', time() - 3600, '/', '.utm.my', $is_secure, true);
+    sso_clear_shared_cookie('email', false);
+    sso_clear_shared_cookie('sso_key', true);
 }
 
 // === SSO Settings Page ===

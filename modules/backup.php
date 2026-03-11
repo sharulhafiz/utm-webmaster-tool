@@ -655,7 +655,7 @@ class UTM_Webmaster_Tool_Backup {
      */
     public function add_backup_page() {
         add_submenu_page(
-            'tools.php',
+            'utm-webmaster-dashboard',
             'UTM Backup & Restore',
             'UTM Backup',
             'manage_options',
@@ -845,7 +845,7 @@ class UTM_Webmaster_Tool_Backup {
                                     <input type="text" value="<?php echo esc_attr( $weekly_human ); ?>" class="regular-text" disabled />
                                     <p class="description">Backups run once per week at the above day/time (site timezone). Each site gets a unique slot to avoid server spikes.</p>
                                     <p style="margin-top:8px;">
-                                        <a href="<?php echo wp_nonce_url( admin_url( 'tools.php?page=utm-database-backup&tab=settings&rerandomize_weekly=1' ), 'utm_rerandomize_weekly_time' ); ?>" class="button">Re-randomize Weekly Time</a>
+                                        <a href="<?php echo wp_nonce_url( admin_url( 'admin.php?page=utm-database-backup&tab=settings&rerandomize_weekly=1' ), 'utm_rerandomize_weekly_time' ); ?>" class="button">Re-randomize Weekly Time</a>
                                     </p>
                                 </td>
                             </tr>
@@ -944,7 +944,7 @@ class UTM_Webmaster_Tool_Backup {
                 <div class="card">
                     <h2>Recent Errors</h2>
                     <pre style="background: #f1f1f1; padding: 10px; max-height: 200px; overflow-y: auto; font-size: 12px;"><?php echo esc_html( $errors ); ?></pre>
-                    <p><a href="<?php echo wp_nonce_url( admin_url( 'tools.php?page=utm-database-backup&clear_errors=1&tab=' . $active_tab ), 'clear_backup_errors' ); ?>" 
+                      <p><a href="<?php echo wp_nonce_url( admin_url( 'admin.php?page=utm-database-backup&clear_errors=1&tab=' . $active_tab ), 'clear_backup_errors' ); ?>" 
                           class="button">Clear Error Log</a></p>
                 </div>
             <?php endif; ?>

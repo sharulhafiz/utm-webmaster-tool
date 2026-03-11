@@ -4,7 +4,7 @@
 // add new menu Bulk Add User to Users menu
 add_action('admin_menu', 'utm_bulk_add_user_menu');
 function utm_bulk_add_user_menu() {
-    add_submenu_page('users.php', 'Bulk Add User', 'Bulk Add User', 'manage_options', 'bulk-add-user', 'utm_newshub_bulk_add_user_page');
+    add_submenu_page('utm-webmaster-dashboard', 'Bulk Add User', 'Bulk Add User', 'manage_options', 'bulk-add-user', 'utm_newshub_bulk_add_user_page');
 }
 
 function utm_newshub_bulk_add_user_page() {

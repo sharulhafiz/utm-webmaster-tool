@@ -48,14 +48,13 @@ define('UTM_CHATBOT_ID_GLOBAL', 'utm-my');
 add_action('admin_menu', 'utm_chatbot_menu');
 
 function utm_chatbot_menu() {
-    add_menu_page(
+    add_submenu_page(
+        'utm-webmaster-dashboard',
         'UTM Chatbot Settings',
         'UTM Chatbot',
         'manage_options',
         'utm-chatbot',
-        'utm_chatbot_settings_page',
-        'dashicons-format-chat',
-        100
+        'utm_chatbot_settings_page'
     );
 }
 
@@ -480,7 +479,7 @@ add_action('wp_enqueue_scripts', function() {
 
 // BACKEND: Only load on chatbot settings page
 add_action('admin_enqueue_scripts', function($hook) {
-    if ($hook === 'toplevel_page_utm-chatbot') {
+    if (strpos($hook, 'utm-chatbot') !== false) {
         wp_enqueue_script('utm-chatbot', UTM_CHATBOT_SERVER_URL . '/static/chatbot-widget.js?chatbotId=' . UTM_CHATBOT_ID, array('jquery'), UTM_CHATBOT_VERSION, true);
         wp_enqueue_style('utm-chatbot-style', UTM_CHATBOT_SERVER_URL . '/static/chatbot-widget.css', array(), UTM_CHATBOT_VERSION);
     }

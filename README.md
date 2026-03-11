@@ -178,6 +178,18 @@ php tests/run-phase6-tests.php
 php tests/validate-phase6-implementation.php
 ```
 
+### Container-based PHP syntax lint (recommended)
+
+Do not rely on host `php` binary for syntax checks. Use container PHP:
+
+```bash
+# Lint using a running container name
+scripts/php-lint-in-container.sh --container www-directory-php /var/www/html/api/sso.php
+
+# Lint multiple plugin files via compose service
+scripts/php-lint-in-container.sh --service www-php index.php modules/dashboard.php
+```
+
 ## 🐛 Debugging
 
 Enable WordPress debugging to troubleshoot issues:

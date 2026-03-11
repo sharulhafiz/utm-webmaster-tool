@@ -37,7 +37,7 @@ function utm_log_404_errors() {
 add_action('admin_menu', 'utm_404_log_menu');
 
 function utm_404_log_menu() {
-    add_submenu_page('tools.php', '404 Log', '404 Log', 'manage_options', 'utm-404-log', 'utm_404_log_page');
+    add_submenu_page('utm-webmaster-dashboard', '404 Log', '404 Log', 'manage_options', 'utm-404-log', 'utm_404_log_page');
 }
 
 function utm_404_log_page() {
