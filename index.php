@@ -108,6 +108,7 @@ function utm_get_all_module_slugs() {
         'utm-news-import',
         'disable-rss-feeds',
         'divi-redis-cache',
+        'admission.utm.my-programmes-filter',
     );
 }
 
