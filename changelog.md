@@ -1,5 +1,26 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-12] - User profile photo enhancements
+
+### Improvements
+- Enhanced the new profile photo feature with a clearer placeholder UI on the user profile screen.
+- Added a generated fallback avatar for users without a custom profile photo.
+- Profile photo uploads are now center-cropped to a square and compressed automatically on save.
+- Replacing or removing a managed profile photo now cleans up the old attachment files.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/profile-photo.php`
+    - Added fallback avatar generation.
+    - Added square crop/compression processing.
+    - Added managed attachment cleanup on replace/remove.
+    - Improved profile-page placeholder UI.
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+    - Version bump: `5.44` → `5.45`
+
+### Deployment Notes
+- Validate syntax inside representative PHP containers.
+- Restart active WordPress PHP containers so FPM loads the enhanced shared plugin code.
+
 ## [2026-03-12] - User profile photo upload
 
 ### Problem
