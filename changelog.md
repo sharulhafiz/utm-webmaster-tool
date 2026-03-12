@@ -1,5 +1,73 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-12] - User profile photo upload
+
+### Problem
+- The plugin did not provide a built-in way for users to upload and manage a custom profile photo from their WordPress profile page.
+- `modules/usermeta.php` only exposed last-login information on the profile screen, while `modules/chatbot.php` handled an unrelated chatbot avatar setting.
+
+### Solution
+Added a dedicated profile photo module that integrates with the WordPress user profile screen:
+
+1. **Profile page upload UI**
+    - Adds a `Profile Photo` section to the user profile screen.
+    - Shows the current photo preview.
+    - Supports upload and removal actions.
+
+2. **Secure upload handling**
+    - Uses WordPress media APIs for image uploads.
+    - Restricts uploads to common image formats (`jpg`, `png`, `gif`, `webp`).
+    - Protects updates with nonce and capability checks.
+
+3. **Avatar override**
+    - Uses the stored attachment as the user's avatar through WordPress avatar filters.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/profile-photo.php`
+  - New module for rendering, saving, and serving custom user profile photos.
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+  - Added the new module to the loader.
+  - Version bump: `5.43` → `5.44`
+
+### Deployment Notes
+- Validated syntax inside `www-php-public` and `events-php-public`.
+- Restarted active WordPress PHP containers after the change so FPM picks up the updated shared plugin code.
+
+## [2026-03-12] - Heartbeat endpoint stabilization
+
+### Problem
+- `modules/heartbeat.php` exposed `/wp-json/utm/v1/version`, but the endpoint checked companion plugin status with side effects, including plugin deactivation logic during a read-only version request.
+- `/sites/www/files/api/heartbeat.php` performed long sequential external requests on every page hit, causing timeouts and slow PHP-FPM requests, especially when one or more target sites were slow or rate-limited.
+
+### Solution
+Implemented a low-risk stabilization focused on heartbeat reads:
+
+1. **Made the REST version endpoint side-effect free**
+     - `modules/heartbeat.php` now reports companion plugin status without mutating plugin state.
+     - Added an `ABSPATH` guard and a `generated_at` timestamp to the response.
+
+2. **Made `api/heartbeat.php` bounded and cache-first**
+     - Added a 5-minute cache stored under `api/cache/heartbeat-report.json`.
+     - Uses parallel cURL requests instead of sequential blocking requests.
+     - Reduced connection and total request timeouts per target site.
+     - Added optional `?refresh=1` to force an immediate refresh.
+     - Added optional `?format=json` output for lightweight machine-readable checks.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/heartbeat.php`
+    - Removed side effects from the version endpoint.
+    - Added safe plugin status detection.
+- `/NFS-WWW4/sites/www/files/api/heartbeat.php`
+    - Added cache-first response handling.
+    - Replaced sequential cURL calls with parallel bounded cURL requests.
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+    - Version bump: `5.42` → `5.43`
+
+### Deployment Notes
+- Validate PHP syntax inside the correct Docker PHP containers.
+- Request `https://www.utm.my/api/heartbeat.php?refresh=1` once after deployment to seed a fresh cache snapshot.
+- If needed, restart only the affected PHP container/service to clear opcache.
+
 ## [2026-03-06] - SEO Social Meta Tags (Open Graph + Twitter Cards)
 
 ### Problem
