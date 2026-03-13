@@ -47,6 +47,39 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
+/**
+ * Provide backward-compatible BLOGUPLOADDIR constant for older Divi paths.
+ *
+ * Some Divi code paths still reference BLOGUPLOADDIR and can fatal if undefined.
+ * We define it conservatively from wp_upload_dir() when missing.
+ */
+function utm_people_define_bloguploaddir_compat() {
+    if ( defined( 'BLOGUPLOADDIR' ) ) {
+        return;
+    }
+
+    $uploads = wp_upload_dir();
+    if ( ! empty( $uploads['basedir'] ) ) {
+        define( 'BLOGUPLOADDIR', trailingslashit( $uploads['basedir'] ) );
+    }
+}
+add_action( 'plugins_loaded', 'utm_people_define_bloguploaddir_compat', 1 );
+
+/**
+ * Mitigate Formidable template-copy collation churn on people.utm.my.
+ *
+ * FrmProCopiesController::copy_forms runs on init and repeatedly triggers
+ * expensive collation-mismatch queries in this environment. Disable this
+ * sync path early to reduce login/admin pressure until DB collations are
+ * fully normalized.
+ */
+function utm_people_mitigate_formidable_copy_forms() {
+    if ( class_exists( 'FrmProCopiesController' ) ) {
+        remove_action( 'init', array( 'FrmProCopiesController', 'copy_forms' ) );
+    }
+}
+add_action( 'init', 'utm_people_mitigate_formidable_copy_forms', 1 );
+
 // ==================================================================
 // HELPER FUNCTIONS
 // ==================================================================

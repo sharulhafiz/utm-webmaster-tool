@@ -1,5 +1,34 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-13] - people.utm.my login pressure mitigation
+
+### Problem
+- `people.utm.my` showed heavy `wp-login.php` request bursts, repeated Divi warnings/fatal traces around missing `BLOGUPLOADDIR`, and recurring Formidable collation-mismatch churn during init.
+
+### Solution
+- Added a compatibility guard in `modules/people.utm.my.php` to define `BLOGUPLOADDIR` when missing.
+- Added a targeted mitigation in `modules/people.utm.my.php` to disable `FrmProCopiesController::copy_forms` on `people` requests, reducing repeated collation-heavy init queries.
+- Hardened login shielding for `people` nginx:
+  - Added `2345Explorer` signatures to heavy crawler map.
+  - Tightened `wp-login.php` throttling burst and added hotspot limiter.
+  - Return `429` for heavy crawler signatures on login endpoint.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/people.utm.my.php`
+  - Added `BLOGUPLOADDIR` compatibility definition.
+  - Added Formidable copy-forms mitigation hook removal.
+- `/NFS-WWW4/sites/people/nginx/10-temp-botshield-http.conf`
+  - Added abusive `2345Explorer` signatures to bot map.
+- `/NFS-WWW4/nginx/conf/snippets/people-wordpress-php-handling.conf`
+  - Tightened login rate-limiting and heavy-crawler blocking on `/wp-login.php`.
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+  - Version bump: `5.47` → `5.48`.
+
+### Deployment Notes
+- Test nginx config before reload/restart.
+- Restart `people` nginx and affected PHP pools after applying changes.
+- Re-sample `wp-login.php` traffic and response timings to confirm pressure reduction.
+
 ## [2026-03-13] - `utm_load_modules()` bootstrap optimization
 
 ### Problem
