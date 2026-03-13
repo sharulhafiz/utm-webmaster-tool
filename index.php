@@ -6,7 +6,7 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
-Version: 5.45
+Version: 5.47
 */
 
 // Exit if accessed directly for security.
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define basic constants. These are fine as they are static.
-define( 'UTM_PLUGIN_VERSION', '5.45' );
+define( 'UTM_PLUGIN_VERSION', '5.47' );
 define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -199,6 +199,122 @@ function utm_set_module_state( $module_slug, $is_active ) {
     return update_site_option( 'utm_webmaster_module_states', $states );
 }
 
+/**
+ * Detect whether current request is for wp-login.php.
+ *
+ * @return bool
+ */
+function utm_is_login_request() {
+    $script_name = isset( $_SERVER['SCRIPT_NAME'] ) ? wp_unslash( $_SERVER['SCRIPT_NAME'] ) : '';
+
+    return is_string( $script_name ) && false !== strpos( $script_name, 'wp-login.php' );
+}
+
+/**
+ * Detect whether current request targets admin-post handlers.
+ *
+ * @return bool
+ */
+function utm_is_admin_post_request() {
+    $script_name = isset( $_SERVER['SCRIPT_NAME'] ) ? wp_unslash( $_SERVER['SCRIPT_NAME'] ) : '';
+
+    return is_string( $script_name ) && false !== strpos( $script_name, 'admin-post.php' );
+}
+
+/**
+ * Detect whether current request is a REST request.
+ *
+ * @return bool
+ */
+function utm_is_rest_request() {
+    if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+        return true;
+    }
+
+    if ( isset( $_GET['rest_route'] ) ) {
+        return true;
+    }
+
+    $request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
+
+    return is_string( $request_uri ) && false !== strpos( $request_uri, '/wp-json/' );
+}
+
+/**
+ * Return normalized request host.
+ *
+ * @return string
+ */
+function utm_get_request_host() {
+    $host = wp_parse_url( home_url(), PHP_URL_HOST );
+
+    return is_string( $host ) ? strtolower( $host ) : '';
+}
+
+/**
+ * Determine if a module should be loaded for the current request context.
+ *
+ * @param string $module Module slug.
+ * @return bool
+ */
+function utm_should_load_module( $module ) {
+    $is_admin           = is_admin();
+    $is_ajax            = wp_doing_ajax();
+    $is_cron            = defined( 'DOING_CRON' ) && DOING_CRON;
+    $is_rest            = utm_is_rest_request();
+    $is_login           = utm_is_login_request();
+    $is_admin_post      = utm_is_admin_post_request();
+    $request_host       = utm_get_request_host();
+
+    $admin_only_modules = array(
+        'dashboard',
+        'bulk-add-user',
+        'bulkdeleteuser',
+        'fixuploadpath',
+        'fixuserrole',
+        'multisite-statistics',
+        'updatenetworkadminemail',
+        'disableplugin',
+        'disable-rss-feeds',
+        'postExport',
+        'listblogs',
+    );
+
+    if ( in_array( $module, $admin_only_modules, true ) ) {
+        return $is_admin || $is_admin_post;
+    }
+
+    if ( 'backup' === $module ) {
+        return $is_admin || $is_admin_post || $is_ajax || $is_cron;
+    }
+
+    if ( in_array( $module, array( 'analytics', 'multisite-api', 'heartbeat' ), true ) ) {
+        return $is_rest;
+    }
+
+    if ( 'people.utm.my' === $module ) {
+        return 'people.utm.my' === $request_host;
+    }
+
+    if ( 'news.utm.my' === $module ) {
+        return 'news.utm.my' === $request_host;
+    }
+
+    if ( 'support.utm.my' === $module ) {
+        return 'support.utm.my' === $request_host;
+    }
+
+    if ( 'admission.utm.my-programmes-filter' === $module ) {
+        return 'admission.utm.my' === $request_host;
+    }
+
+    if ( 'registrar' === $module ) {
+        return 'registrar.utm.my' === $request_host;
+    }
+
+    return true;
+}
+
 
 /**
  * Load all plugin modules.
@@ -210,6 +326,10 @@ function utm_load_modules() {
 
     foreach ( $modules as $module ) {
         if ( ! utm_is_module_active( $module ) ) {
+            continue;
+        }
+
+        if ( ! utm_should_load_module( $module ) ) {
             continue;
         }
 

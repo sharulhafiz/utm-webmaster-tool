@@ -1,5 +1,49 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-13] - `utm_load_modules()` bootstrap optimization
+
+### Problem
+- The plugin loaded all active modules on every request via `utm_load_modules()`.
+- This increased request bootstrap cost for frontend traffic, because many modules are admin-only, REST-only, or site-specific.
+
+### Solution
+- Added conservative request-aware module loading in `index.php`:
+    - **Admin/network/admin-post only** modules are skipped on normal frontend requests.
+    - **REST-only** modules (`analytics`, `multisite-api`, `heartbeat`) are loaded only for REST requests.
+    - **Backup module** is limited to admin/admin-post/AJAX/cron contexts.
+    - **Site-specific modules** (`people.utm.my`, `news.utm.my`, `support.utm.my`, `admission.utm.my-programmes-filter`, `registrar`) now include a host-level gate before load.
+- Kept mixed-risk modules unchanged in this phase to minimize behavior risk.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+    - Added request context helpers and `utm_should_load_module()`.
+    - Updated loader to skip modules that are irrelevant for the current request.
+    - Version bump: `5.46` → `5.47`.
+
+### Deployment Notes
+- Validate syntax in container PHP before rollout.
+- Restart active WordPress PHP-FPM containers so opcache picks up the updated shared plugin bootstrap.
+
+## [2026-03-12] - Shared plugin OPcache reset removal
+
+### Problem
+- `modules/analytics.php` called `opcache_reset()` at file load time.
+- Because the shared plugin loader includes active modules on normal requests, that reset could run during public front-end traffic and repeatedly discard PHP opcode cache, especially hurting `news.utm.my` cold/miss performance.
+
+### Solution
+- Removed the top-level `opcache_reset()` call from `modules/analytics.php`.
+- Kept explicit OPcache reset mechanisms in dedicated maintenance/debug flows instead of normal page requests.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/analytics.php`
+    - Removed per-request OPcache reset from module load.
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+    - Version bump: `5.45` → `5.46`
+
+### Deployment Notes
+- Validate syntax using container PHP.
+- Restart affected PHP-FPM containers after deployment so they pick up the updated shared plugin code.
+
 ## [2026-03-12] - User profile photo enhancements
 
 ### Improvements
