@@ -1,4 +1,41 @@
 <?php
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
+/**
+ * Check whether current request host targets events.utm.my.
+ *
+ * @return bool
+ */
+function utm_events_is_events_host() {
+    if ( empty( $_SERVER['HTTP_HOST'] ) ) {
+        return false;
+    }
+
+    $host = strtolower( wp_unslash( $_SERVER['HTTP_HOST'] ) );
+    $host = preg_replace( '/:\d+$/', '', $host );
+
+    return ( false !== strpos( $host, 'events.utm.my' ) );
+}
+
+/**
+ * Reduce Formidable addon API chatter on events admin pages.
+ *
+ * This avoids repeated addon update checks that contribute to admin latency
+ * and noisy warnings in high-traffic periods.
+ */
+function utm_events_mitigate_formidable_addon_checks() {
+    if ( ! is_admin() || ! utm_events_is_events_host() ) {
+        return;
+    }
+
+    if ( class_exists( 'FrmAddonsController' ) ) {
+        remove_filter( 'pre_set_site_transient_update_plugins', array( 'FrmAddonsController', 'check_update' ) );
+    }
+}
+add_action( 'plugins_loaded', 'utm_events_mitigate_formidable_addon_checks', 20 );
+
 // // if tribe_get_events or tribe_get_start_date is not defined, define a dummy function to avoid fatal error
 // if (!function_exists('tribe_get_events')) {
 //     function tribe_get_events($args) {

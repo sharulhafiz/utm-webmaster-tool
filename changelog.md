@@ -1,5 +1,25 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-13] - events priority-2 stability hardening
+
+### Problem
+- `events.utm.my` logs showed recurring warnings in `modules/multisite-api.php` (`Undefined variable $site_id`).
+- Formidable admin flows produced repeated warning/slow-path pressure during `wp-admin` usage.
+
+### Solution
+- Hardened `modules/multisite-api.php`:
+  - Added ABSPATH guard.
+  - Fixed `site_id` initialization path in user-loop logic.
+  - Added defensive request parsing and per-page cap.
+  - Reduced exposure risk by disabling sensitive custom user/admin-email route registration and retaining only the sites route.
+- Added events-admin mitigation in `modules/events.php` to reduce Formidable addon update-check chatter on `events.utm.my` admin requests.
+- Version bump: `5.49` → `5.50`.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/multisite-api.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/events.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+
 ## [2026-03-13] - heartbeat safety + analytics cache stability
 
 ### Problem
