@@ -4,7 +4,7 @@
  * Generates CSV data for posts from the past year with attachment counts
  * Compatible with Google Sheets import
  */
-opcache_reset();
+
 // Prevent direct access
 if (!defined('ABSPATH')) {
     exit;

@@ -1,5 +1,24 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-13] - heartbeat safety + analytics cache stability
+
+### Problem
+- `modules/heartbeat.php` previously used a helper that **deactivated** `utm-wp-plugin` while checking status, causing unwanted side effects.
+- `modules/analytics.php` still contained a top-level OPcache reset call in local working changes and needed to remain side-effect free on normal requests.
+
+### Solution
+- Refactored heartbeat status detection to be read-only:
+  - Added guarded plugin API include when needed.
+  - Returns activation state without mutating plugin state.
+  - Added `generated_at` timestamp to endpoint payload.
+- Kept analytics module bootstrap side-effect free by removing per-request OPcache reset behavior.
+- Version bump: `5.48` → `5.49`.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/heartbeat.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/analytics.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+
 ## [2026-03-13] - people.utm.my login pressure mitigation
 
 ### Problem
