@@ -1,5 +1,65 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-17] - news profile photo reliability fix (critical)
+
+### Problem
+On `news.utm.my`, author/user profile photos were not rendering on the frontend despite being stored in the database and WordPress returning valid avatar URLs in the backend. Root causes:
+1. **Elementor Template Cache**: The "Single Post Template" (Elementor Pro template ID 719229) had a cached HTML snapshot of the author-box widget with empty `src=""` attributes. This cache was generated before the profile-photo module's avatar hooks were activated.
+2. **Filter Signature Bug**: The defensively-added `pre_get_avatar_data` hook was incorrectly registered with 3 parameters (`$3`), but WordPress only passes 2 parameters (`$avatar_data`, `$id_or_email`) at this hook point, causing a fatal ArgumentCountError on every page render.
+
+### Solution
+- **Fixed filter signature**: Changed `pre_get_avatar_data` hook callback to accept only 2 parameters (the correct WordPress signature for this hook). The size parameter is handled in the `get_avatar_url` hook (priority 9999) where the args ARE available.
+- **Cleared Elementor caches**: Deleted `_elementor_element_cache` post metadata from the Single Post Template (ID 719229) to force Elementor to re-render and regenerate HTML with the corrected avatar hooks active.
+- **Cleared all caching layers**:
+  - Nginx FastCGI cache for the article pages
+  - WordPress object cache via `wp_cache_flush()`
+  - Elementor's internal CSS and template caches
+- **Verified fix**: Avatar URLs now correctly render on `news.utm.my` article pages, showing SVG fallback avatars with generated initials where custom photos are unavailable.
+
+### Technical Details
+- **Pre-hook signature issue**: WordPress `pre_get_avatar_data` filter is applied as:
+  ```php
+  apply_filters( 'pre_get_avatar_data', $avatar_data, $id_or_email )  // 2 params only
+  ```
+  NOT with $args. The full args are only available in the `get_avatar_url` filter which receives 3 parameters.
+  
+- **Elementor rendering flow**: 
+  1. Elementor Pro theme template (Single Post Template ID 719229) renders widgets
+  2. Author-box widget calls `get_avatar_url()` at render time
+  3. Our hooks intercept and return profile-photo URLs
+  4. But Elementor had a stale `_elementor_element_cache` from before our hooks were active
+  5. Clearing the cache forced re-rendering with hooks active
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/profile-photo.php`
+  - Fixed `pre_get_avatar_data` hook callback to accept exactly 2 parameters (not 3)
+  - Fixed function documentation to clarify which parameters are available at this hook point
+  - No changes to logic, only signature correction
+- No changes to index.php (version remains 5.51)
+- No changes to changelog structure
+
+### Deployment Verification
+✅ Article avatar rendering: `https://news.utm.my/2026/03/from-politeness-to-adab-why-language-education-must-go-beyond-grammar/` shows author avatar with initials  
+✅ Avatar endpoint: `https://news.utm.my/?utm_profile_avatar=341&s=96` returns SVG with correct initials  
+✅ Filter chain: No PHP Fatal errors in debug.log  
+✅ Elementor rendering: No timeouts or ArgumentCountErrors  
+
+---
+
+## [2026-03-17] - news profile photo reliability fix (initial attempt)
+
+### Problem
+- On `news.utm.my`, some author/user profile photos rendered while many others were missing.
+- Root cause: avatar override logic in `modules/profile-photo.php` returned no fallback when a stored attachment ID could not be resolved (common in multisite when attachment belongs to another blog context or stale media record).
+
+### Solution (later revised)
+- Hardened avatar resolution to always provide a generated fallback when a custom image cannot be resolved.
+- Added multisite-aware profile photo storage and lookup.
+- Added defensive avatar hooks with initially incorrect filter signatures (corrected in 2026-03-17 critical fix above).
+- Version bump: `5.50` → `5.51`.
+
+---
+
 ## [2026-03-13] - events priority-2 stability hardening
 
 ### Problem

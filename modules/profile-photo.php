@@ -14,6 +14,11 @@ define( 'UTM_PROFILE_PHOTO_META_KEY', 'utm_profile_photo_id' );
 define( 'UTM_PROFILE_PHOTO_MANAGED_META_KEY', 'utm_profile_photo_managed' );
 
 /**
+ * User meta key for the site/blog ID where the profile photo attachment lives.
+ */
+define( 'UTM_PROFILE_PHOTO_BLOG_META_KEY', 'utm_profile_photo_blog_id' );
+
+/**
  * Build the transient key used for profile photo notices.
  *
  * @return string
@@ -30,6 +35,16 @@ function utm_profile_photo_notice_key() {
  */
 function utm_profile_photo_get_attachment_id( $user_id ) {
     return (int) get_user_meta( $user_id, UTM_PROFILE_PHOTO_META_KEY, true );
+}
+
+/**
+ * Return the saved blog/site ID for the profile photo attachment.
+ *
+ * @param int $user_id User ID.
+ * @return int
+ */
+function utm_profile_photo_get_attachment_blog_id( $user_id ) {
+    return (int) get_user_meta( $user_id, UTM_PROFILE_PHOTO_BLOG_META_KEY, true );
 }
 
 /**
@@ -72,13 +87,13 @@ function utm_profile_photo_get_initials( $user ) {
 }
 
 /**
- * Return a deterministic fallback avatar data URI.
+ * Return SVG markup for deterministic fallback avatar.
  *
  * @param int $user_id User ID.
  * @param int $size    Avatar size.
  * @return string
  */
-function utm_profile_photo_get_fallback_avatar_url( $user_id, $size = 96 ) {
+function utm_profile_photo_get_fallback_avatar_svg( $user_id, $size = 96 ) {
     $user     = get_userdata( $user_id );
     $initials = utm_profile_photo_get_initials( $user );
     $size     = max( 32, (int) $size );
@@ -86,7 +101,7 @@ function utm_profile_photo_get_fallback_avatar_url( $user_id, $size = 96 ) {
     $bg       = $colors[ $user_id % count( $colors ) ];
     $font     = max( 14, (int) round( $size * 0.34 ) );
 
-    $svg = sprintf(
+    return sprintf(
         '<svg xmlns="http://www.w3.org/2000/svg" width="%1$d" height="%1$d" viewBox="0 0 %1$d %1$d" role="img" aria-label="Avatar"><rect width="%1$d" height="%1$d" rx="%2$d" fill="%3$s"/><text x="50%%" y="50%%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="%4$d" font-weight="700">%5$s</text></svg>',
         $size,
         (int) round( $size / 2 ),
@@ -94,8 +109,56 @@ function utm_profile_photo_get_fallback_avatar_url( $user_id, $size = 96 ) {
         $font,
         esc_html( $initials )
     );
+}
 
-    return 'data:image/svg+xml;base64,' . base64_encode( $svg );
+/**
+ * Return a deterministic fallback avatar URL.
+ *
+ * @param int $user_id User ID.
+ * @param int $size    Avatar size.
+ * @return string
+ */
+function utm_profile_photo_get_fallback_avatar_url( $user_id, $size = 96 ) {
+    $size     = max( 32, (int) $size );
+
+    return add_query_arg(
+        array(
+            'utm_profile_avatar' => (int) $user_id,
+            's'                  => $size,
+        ),
+        home_url( '/' )
+    );
+}
+
+/**
+ * Serve generated SVG fallback avatars via local URL endpoint.
+ *
+ * @return void
+ */
+add_action( 'init', 'utm_profile_photo_serve_fallback_avatar' );
+function utm_profile_photo_serve_fallback_avatar() {
+    if ( empty( $_GET['utm_profile_avatar'] ) ) {
+        return;
+    }
+
+    $user_id = absint( wp_unslash( $_GET['utm_profile_avatar'] ) );
+    $size    = isset( $_GET['s'] ) ? absint( wp_unslash( $_GET['s'] ) ) : 96;
+    if ( $size <= 0 ) {
+        $size = 96;
+    }
+
+    if ( $user_id <= 0 || ! get_userdata( $user_id ) ) {
+        status_header( 404 );
+        exit;
+    }
+
+    $svg = utm_profile_photo_get_fallback_avatar_svg( $user_id, $size );
+
+    nocache_headers();
+    header( 'Content-Type: image/svg+xml; charset=utf-8' );
+    header( 'Cache-Control: public, max-age=86400' );
+    echo $svg;
+    exit;
 }
 
 /**
@@ -111,9 +174,31 @@ function utm_profile_photo_get_image_url( $user_id, $size = 192 ) {
         return '';
     }
 
+    $blog_id      = utm_profile_photo_get_attachment_blog_id( $user_id );
+    $image_url    = '';
+    $switched     = false;
+    $current_blog = (int) get_current_blog_id();
+
+    if ( is_multisite() && $blog_id > 0 && $blog_id !== $current_blog ) {
+        switch_to_blog( $blog_id );
+        $switched = true;
+    }
+
     $image_url = wp_get_attachment_image_url( $attachment_id, array( $size, $size ) );
     if ( ! $image_url ) {
         $image_url = wp_get_attachment_url( $attachment_id );
+    }
+
+    if ( $switched ) {
+        restore_current_blog();
+    }
+
+    // Backward compatibility: old records may not have a blog ID yet.
+    if ( ! $image_url && ( ! is_multisite() || ! $blog_id || $blog_id !== $current_blog ) ) {
+        $image_url = wp_get_attachment_image_url( $attachment_id, array( $size, $size ) );
+        if ( ! $image_url ) {
+            $image_url = wp_get_attachment_url( $attachment_id );
+        }
     }
 
     return $image_url ? $image_url : '';
@@ -143,17 +228,32 @@ function utm_profile_photo_set_notice( $message, $type = 'success' ) {
  * @param int $attachment_id Attachment ID.
  * @return void
  */
-function utm_profile_photo_delete_managed_attachment( $attachment_id ) {
+function utm_profile_photo_delete_managed_attachment( $attachment_id, $blog_id = 0 ) {
     $attachment_id = (int) $attachment_id;
+    $blog_id       = (int) $blog_id;
     if ( ! $attachment_id ) {
         return;
     }
 
+    $switched     = false;
+    $current_blog = (int) get_current_blog_id();
+    if ( is_multisite() && $blog_id > 0 && $blog_id !== $current_blog ) {
+        switch_to_blog( $blog_id );
+        $switched = true;
+    }
+
     if ( ! get_post_meta( $attachment_id, UTM_PROFILE_PHOTO_MANAGED_META_KEY, true ) ) {
+        if ( $switched ) {
+            restore_current_blog();
+        }
         return;
     }
 
     wp_delete_attachment( $attachment_id, true );
+
+    if ( $switched ) {
+        restore_current_blog();
+    }
 }
 
 /**
@@ -302,10 +402,12 @@ function utm_profile_photo_save_profile_fields( $user_id ) {
     }
 
     $existing_attachment_id = utm_profile_photo_get_attachment_id( $user_id );
+    $existing_blog_id       = utm_profile_photo_get_attachment_blog_id( $user_id );
 
     if ( ! empty( $_POST['utm_profile_photo_remove'] ) ) {
         delete_user_meta( $user_id, UTM_PROFILE_PHOTO_META_KEY );
-        utm_profile_photo_delete_managed_attachment( $existing_attachment_id );
+        delete_user_meta( $user_id, UTM_PROFILE_PHOTO_BLOG_META_KEY );
+        utm_profile_photo_delete_managed_attachment( $existing_attachment_id, $existing_blog_id );
         utm_profile_photo_set_notice( __( 'Profile photo removed.', 'utm-webmaster' ) );
         return;
     }
@@ -342,14 +444,15 @@ function utm_profile_photo_save_profile_fields( $user_id ) {
 
     $processed = utm_profile_photo_process_attachment( $attachment_id );
     if ( is_wp_error( $processed ) ) {
-        utm_profile_photo_delete_managed_attachment( $attachment_id );
+        utm_profile_photo_delete_managed_attachment( $attachment_id, get_current_blog_id() );
         utm_profile_photo_set_notice( $processed->get_error_message(), 'error' );
         return;
     }
 
     update_user_meta( $user_id, UTM_PROFILE_PHOTO_META_KEY, (int) $attachment_id );
+    update_user_meta( $user_id, UTM_PROFILE_PHOTO_BLOG_META_KEY, (int) get_current_blog_id() );
     if ( $existing_attachment_id && $existing_attachment_id !== (int) $attachment_id ) {
-        utm_profile_photo_delete_managed_attachment( $existing_attachment_id );
+        utm_profile_photo_delete_managed_attachment( $existing_attachment_id, $existing_blog_id );
     }
 
     utm_profile_photo_set_notice( __( 'Profile photo updated.', 'utm-webmaster' ) );
@@ -400,26 +503,30 @@ function utm_profile_photo_resolve_user_id( $id_or_email ) {
  * @param mixed $id_or_email Avatar lookup input.
  * @return array
  */
-add_filter( 'get_avatar_data', 'utm_profile_photo_get_avatar_data', 10, 2 );
+add_filter( 'get_avatar_data', 'utm_profile_photo_get_avatar_data', 9999, 2 );
 function utm_profile_photo_get_avatar_data( $args, $id_or_email ) {
     $user_id = utm_profile_photo_resolve_user_id( $id_or_email );
     if ( ! $user_id ) {
         return $args;
     }
 
+    $size = isset( $args['size'] ) ? (int) $args['size'] : 96;
+    if ( $size <= 0 ) {
+        $size = 96;
+    }
+
     $attachment_id = utm_profile_photo_get_attachment_id( $user_id );
     if ( ! $attachment_id ) {
-        $args['url']          = utm_profile_photo_get_fallback_avatar_url( $user_id, isset( $args['size'] ) ? (int) $args['size'] : 96 );
+        $args['url']          = utm_profile_photo_get_fallback_avatar_url( $user_id, $size );
         $args['found_avatar'] = true;
         return $args;
     }
 
-    $image_url = wp_get_attachment_image_url( $attachment_id, array( (int) $args['size'], (int) $args['size'] ) );
-    if ( ! $image_url ) {
-        $image_url = wp_get_attachment_url( $attachment_id );
-    }
+    $image_url = utm_profile_photo_get_image_url( $user_id, $size );
 
     if ( ! $image_url ) {
+        $args['url']          = utm_profile_photo_get_fallback_avatar_url( $user_id, $size );
+        $args['found_avatar'] = true;
         return $args;
     }
 
@@ -427,4 +534,87 @@ function utm_profile_photo_get_avatar_data( $args, $id_or_email ) {
     $args['found_avatar'] = true;
 
     return $args;
+}
+
+/**
+ * Pre-resolve avatar data to avoid empty avatar URLs when other settings or
+ * filters short-circuit WordPress avatar resolution.
+ *
+ * NOTE: pre_get_avatar_data filter only receives 2 parameters: ($avatar_data, $id_or_email).
+ * The $args parameter is NOT available at this hook point. Size handling is done in get_avatar_url hook.
+ *
+ * @param array|null $avatar_data Existing short-circuit data.
+ * @param mixed      $id_or_email Avatar lookup input.
+ * @return array|null
+ */
+add_filter( 'pre_get_avatar_data', 'utm_profile_photo_pre_get_avatar_data', 9999, 2 );
+function utm_profile_photo_pre_get_avatar_data( $avatar_data, $id_or_email ) {
+    if ( is_array( $avatar_data ) && ! empty( $avatar_data['url'] ) ) {
+        return $avatar_data;
+    }
+
+    $user_id = utm_profile_photo_resolve_user_id( $id_or_email );
+    if ( ! $user_id ) {
+        return $avatar_data;
+    }
+
+    // Use default size here since $args are not available at this hook point
+    $default_size = 96;
+
+    $url = utm_profile_photo_get_image_url( $user_id, $default_size );
+    if ( ! $url ) {
+        $url = utm_profile_photo_get_fallback_avatar_url( $user_id, $default_size );
+    }
+
+    if ( ! $url ) {
+        return $avatar_data;
+    }
+
+    return array(
+        'url'            => $url,
+        'found_avatar'   => true,
+    );
+}
+
+/**
+ * Final safety net to prevent empty avatar URLs.
+ *
+ * @param string $url         Avatar URL.
+ * @param mixed  $id_or_email Avatar lookup input.
+ * @param array  $args        Avatar args.
+ * @return string
+ */
+add_filter( 'get_avatar_url', 'utm_profile_photo_ensure_avatar_url', 9999, 3 );
+function utm_profile_photo_ensure_avatar_url( $url, $id_or_email, $args ) {
+    if ( ! empty( $url ) ) {
+        return $url;
+    }
+
+    $user_id = utm_profile_photo_resolve_user_id( $id_or_email );
+    if ( ! $user_id ) {
+        return $url;
+    }
+
+    $size = isset( $args['size'] ) ? (int) $args['size'] : 96;
+    if ( $size <= 0 ) {
+        $size = 96;
+    }
+
+    $resolved = utm_profile_photo_get_image_url( $user_id, $size );
+    if ( ! $resolved ) {
+        $resolved = utm_profile_photo_get_fallback_avatar_url( $user_id, $size );
+    }
+
+    return $resolved ? $resolved : $url;
+}
+
+/**
+ * Ensure avatars are enabled so frontend consumers still receive URLs.
+ *
+ * @param mixed $value Existing option value.
+ * @return int
+ */
+add_filter( 'pre_option_show_avatars', 'utm_profile_photo_force_show_avatars', 9999 );
+function utm_profile_photo_force_show_avatars( $value ) {
+    return 1;
 }
