@@ -497,9 +497,17 @@ function utm_profile_photo_resolve_user_id( $id_or_email ) {
 }
 
 /**
- * Override avatar data when a custom profile photo exists.
+ * Override avatar with local profile photo if available.
  *
- * @param array $args        Avatar arguments.
+ * PRIORITY (in order):
+ * 1. Local custom profile photo (checked here)
+ * 2. Gravatar (already set by WordPress before this hook)
+ * 3. SVG fallback (checked in get_avatar_url as final safety net)
+ *
+ * Do NOT apply SVG fallback in this hook - only use local photo if available.
+ * Other hooks (get_avatar_url) handle the fallback as a true last resort.
+ *
+ * @param array $args        Avatar arguments (may already contain Gravatar URL).
  * @param mixed $id_or_email Avatar lookup input.
  * @return array
  */
@@ -510,26 +518,29 @@ function utm_profile_photo_get_avatar_data( $args, $id_or_email ) {
         return $args;
     }
 
+    // Check if we have a local profile photo
+    $attachment_id = utm_profile_photo_get_attachment_id( $user_id );
+    if ( ! $attachment_id ) {
+        // No local photo - let WordPress defaults (Gravatar, etc.) remain
+        // SVG fallback will be applied in get_avatar_url if still empty
+        return $args;
+    }
+
+    // We have a local photo - get its URL
     $size = isset( $args['size'] ) ? (int) $args['size'] : 96;
     if ( $size <= 0 ) {
         $size = 96;
     }
 
-    $attachment_id = utm_profile_photo_get_attachment_id( $user_id );
-    if ( ! $attachment_id ) {
-        $args['url']          = utm_profile_photo_get_fallback_avatar_url( $user_id, $size );
-        $args['found_avatar'] = true;
-        return $args;
-    }
-
     $image_url = utm_profile_photo_get_image_url( $user_id, $size );
 
     if ( ! $image_url ) {
-        $args['url']          = utm_profile_photo_get_fallback_avatar_url( $user_id, $size );
-        $args['found_avatar'] = true;
+        // Local photo attachment exists but URL cannot be resolved
+        // This is rare - let WordPress defaults remain, SVG fallback handles final case
         return $args;
     }
 
+    // Override with local photo URL
     $args['url']          = $image_url;
     $args['found_avatar'] = true;
 
@@ -537,18 +548,23 @@ function utm_profile_photo_get_avatar_data( $args, $id_or_email ) {
 }
 
 /**
- * Pre-resolve avatar data to avoid empty avatar URLs when other settings or
- * filters short-circuit WordPress avatar resolution.
+ * Check for local profile photo first before deferring to WordPress defaults (Gravatar).
+ *
+ * PRIORITY (in order):
+ * 1. Local custom profile photo (if available) - SHORT-CIRCUIT here
+ * 2. Gravatar or other WordPress defaults (handled by core) - let WordPress continue
+ * 3. SVG fallback (handled in get_avatar_url hook if still empty)
  *
  * NOTE: pre_get_avatar_data filter only receives 2 parameters: ($avatar_data, $id_or_email).
- * The $args parameter is NOT available at this hook point. Size handling is done in get_avatar_url hook.
+ * The $args parameter is NOT available at this hook point.
  *
  * @param array|null $avatar_data Existing short-circuit data.
  * @param mixed      $id_or_email Avatar lookup input.
  * @return array|null
  */
-add_filter( 'pre_get_avatar_data', 'utm_profile_photo_pre_get_avatar_data', 9999, 2 );
+add_filter( 'pre_get_avatar_data', 'utm_profile_photo_pre_get_avatar_data', 5, 2 );
 function utm_profile_photo_pre_get_avatar_data( $avatar_data, $id_or_email ) {
+    // If already has a valid URL from another source, pass it through
     if ( is_array( $avatar_data ) && ! empty( $avatar_data['url'] ) ) {
         return $avatar_data;
     }
@@ -558,18 +574,18 @@ function utm_profile_photo_pre_get_avatar_data( $avatar_data, $id_or_email ) {
         return $avatar_data;
     }
 
-    // Use default size here since $args are not available at this hook point
+    // ONLY override if we have a custom local profile photo
+    // Use default size since $args not available at this hook point
     $default_size = 96;
-
     $url = utm_profile_photo_get_image_url( $user_id, $default_size );
-    if ( ! $url ) {
-        $url = utm_profile_photo_get_fallback_avatar_url( $user_id, $default_size );
-    }
 
     if ( ! $url ) {
+        // No local photo - let WordPress handle Gravatar and other defaults
+        // DO NOT apply SVG fallback here - let get_avatar_url handle that
         return $avatar_data;
     }
 
+    // Return early ONLY if we have a custom local profile photo
     return array(
         'url'            => $url,
         'found_avatar'   => true,
