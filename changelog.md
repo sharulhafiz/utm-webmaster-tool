@@ -1,5 +1,37 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-03-19] - admission programmes importer module
+
+### Problem
+- `admission.utm.my/new2024` required a reliable way to import programme data from multiple Google Sheets into the `programmes` custom post type with repeatable upsert behavior and operational visibility.
+
+### Solution
+- Added new module: `modules/admission.utm.my-programmes-import.php`.
+- Implemented context guard to run only on `admission.utm.my/new2024`.
+- Added multi-source CSV import pipeline (PG Research, PG Coursework, UG).
+- Added robust header normalization + alias mapping to compatible meta keys.
+- Implemented deterministic upsert key strategy (code-first, title-hash fallback).
+- Added level taxonomy assignment with source defaults and row overrides.
+- Added import run locking, per-run summaries, capped logs, and last-run status persistence.
+- Added daily cron scheduling and manual “Run Import Now” admin action.
+- Added secure REST endpoints for cross-server trigger/status with token-based auth:
+  - `POST /wp-json/utm-webmaster/v1/admission-programmes-import/run`
+  - `GET /wp-json/utm-webmaster/v1/admission-programmes-import/status`
+- Added API token seed + nonce-protected token rotation from admin UI.
+- Wired module loading in `index.php` and host-gated loading via `utm_should_load_module()`.
+- Version bump: `5.51` → `5.52`.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/admission.utm.my-programmes-import.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+
+### Validation
+- VS Code diagnostics: no errors in changed files.
+- In-container lint: no syntax errors in
+  - `modules/admission.utm.my-programmes-import.php`
+  - `index.php`
+
 ## [2026-03-17] - news profile photo reliability fix (critical)
 
 ### Problem

@@ -6,7 +6,7 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
-Version: 5.51
+Version: 5.52
  */
 
 // Exit if accessed directly for security.
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define basic constants. These are fine as they are static.
-define( 'UTM_PLUGIN_VERSION', '5.51' );
+define( 'UTM_PLUGIN_VERSION', '5.52' );
 define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -110,6 +110,7 @@ function utm_get_all_module_slugs() {
         'disable-rss-feeds',
         'divi-redis-cache',
         'admission.utm.my-programmes-filter',
+        'admission.utm.my-programmes-import',
     );
 }
 
@@ -305,6 +306,10 @@ function utm_should_load_module( $module ) {
     }
 
     if ( 'admission.utm.my-programmes-filter' === $module ) {
+        return 'admission.utm.my' === $request_host;
+    }
+
+    if ( 'admission.utm.my-programmes-import' === $module ) {
         return 'admission.utm.my' === $request_host;
     }
 
