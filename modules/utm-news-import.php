@@ -20,6 +20,7 @@ define('UTM_NEWS_SOURCE_MEDIA_ENDPOINT', 'https://news.utm.my/wp-json/wp/v2/medi
 define('UTM_NEWS_SOURCE_CAT_ENDPOINT', 'https://news.utm.my/wp-json/wp/v2/categories');
 define('UTM_NEWS_SETTINGS_OPTION', 'utm_news_import_settings');
 define('UTM_NEWS_DEPT_CACHE_OPTION', 'utm_news_department_cache');
+define('UTM_NEWS_CAT_CACHE_OPTION', 'utm_news_category_cache');
 define('UTM_NEWS_CRON_HOOK', 'utm_news_hourly_import_hook');
 
 /**
@@ -45,6 +46,7 @@ function utm_news_is_source_site() {
 function utm_news_get_default_settings() {
     return array(
         'selected_departments' => array(),
+        'selected_categories' => array(),
         'display_style' => 'basic_list',
         'import_count' => 5,
         'retention_mode' => 'latest_only',
@@ -69,6 +71,7 @@ function utm_news_get_settings() {
     $settings = wp_parse_args($settings, utm_news_get_default_settings());
 
     $settings['selected_departments'] = array_values(array_filter(array_map('sanitize_text_field', (array) $settings['selected_departments'])));
+    $settings['selected_categories'] = array_values(array_filter(array_map('sanitize_text_field', (array) $settings['selected_categories'])));
     $settings['display_style'] = in_array($settings['display_style'], array('basic_list', 'card'), true) ? $settings['display_style'] : 'basic_list';
     $settings['import_count'] = max(1, (int) $settings['import_count']);
     $settings['retention_mode'] = in_array($settings['retention_mode'], array('latest_only', 'permanent'), true) ? $settings['retention_mode'] : 'latest_only';
@@ -194,6 +197,109 @@ function utm_news_get_departments($force_refresh = false) {
 }
 
 /**
+ * Fetch available categories from source via REST API.
+ *
+ * @return array|WP_Error
+ */
+function utm_news_fetch_categories_from_source() {
+    $all_categories = array();
+    $per_page = 100;
+
+    for ($page = 1; $page <= 10; $page++) {
+        $url = add_query_arg(
+            array(
+                'per_page' => $per_page,
+                'page' => $page,
+                'orderby' => 'name',
+                'order' => 'asc',
+            ),
+            UTM_NEWS_SOURCE_CAT_ENDPOINT
+        );
+
+        $response = wp_remote_get($url, array(
+            'timeout' => 15,
+            'sslverify' => true,
+        ));
+
+        if (is_wp_error($response)) {
+            return new WP_Error('utm_news_cat_fetch_failed', 'Failed to fetch categories: ' . $response->get_error_message());
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return new WP_Error('utm_news_cat_bad_http', 'Failed to fetch categories (HTTP ' . $code . ').');
+        }
+
+        $items = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($items)) {
+            return new WP_Error('utm_news_cat_bad_json', 'Invalid category response format from source.');
+        }
+
+        foreach ($items as $item) {
+            if (!is_array($item) || empty($item['name'])) {
+                continue;
+            }
+
+            $slug = !empty($item['slug']) ? sanitize_title($item['slug']) : '';
+            $id = isset($item['id']) ? (string) (int) $item['id'] : '';
+            $value = $slug !== '' ? $slug : $id;
+
+            if ($value === '') {
+                continue;
+            }
+
+            $all_categories[$value] = array(
+                'value' => $value,
+                'id' => $id,
+                'slug' => $slug,
+                'name' => sanitize_text_field($item['name']),
+            );
+        }
+
+        if (count($items) < $per_page) {
+            break;
+        }
+    }
+
+    if (empty($all_categories)) {
+        return new WP_Error('utm_news_cat_empty', 'No categories returned from source endpoint.');
+    }
+
+    uasort($all_categories, function($a, $b) {
+        return strcmp($a['name'], $b['name']);
+    });
+
+    return array_values($all_categories);
+}
+
+/**
+ * Get category cache. Optionally force refresh from source.
+ *
+ * @param bool $force_refresh Force refresh.
+ * @return array|WP_Error
+ */
+function utm_news_get_categories($force_refresh = false) {
+    if (!$force_refresh) {
+        $cache = get_option(UTM_NEWS_CAT_CACHE_OPTION, array());
+        if (is_array($cache) && !empty($cache['categories']) && is_array($cache['categories'])) {
+            return $cache['categories'];
+        }
+    }
+
+    $categories = utm_news_fetch_categories_from_source();
+    if (is_wp_error($categories)) {
+        return $categories;
+    }
+
+    update_option(UTM_NEWS_CAT_CACHE_OPTION, array(
+        'categories' => $categories,
+        'updated_at' => current_time('mysql'),
+    ));
+
+    return $categories;
+}
+
+/**
  * Resolve department slug to numeric ID.
  *
  * @param string $slug_or_id Department identifier.
@@ -215,6 +321,33 @@ function resolve_department_slug_to_id($slug_or_id) {
     $departments = json_decode(wp_remote_retrieve_body($dept_response), true);
     if (!empty($departments) && is_array($departments) && isset($departments[0]['id'])) {
         return (string) (int) $departments[0]['id'];
+    }
+
+    return (string) $slug_or_id;
+}
+
+/**
+ * Resolve category slug to numeric ID.
+ *
+ * @param string $slug_or_id Category identifier.
+ * @return string
+ */
+function resolve_category_slug_to_id($slug_or_id) {
+    if (is_numeric($slug_or_id)) {
+        return (string) $slug_or_id;
+    }
+
+    $cat_url = add_query_arg(array('slug' => $slug_or_id), UTM_NEWS_SOURCE_CAT_ENDPOINT);
+    $cat_response = wp_remote_get($cat_url, array('timeout' => 10));
+
+    if (is_wp_error($cat_response)) {
+        error_log('UTM News Category Resolve Error: ' . $cat_response->get_error_message());
+        return (string) $slug_or_id;
+    }
+
+    $categories = json_decode(wp_remote_retrieve_body($cat_response), true);
+    if (!empty($categories) && is_array($categories) && isset($categories[0]['id'])) {
+        return (string) (int) $categories[0]['id'];
     }
 
     return (string) $slug_or_id;
@@ -412,6 +545,42 @@ function cleanup_old_imported_posts($department_identifier, $keep_count = 5) {
 }
 
 /**
+ * Cleanup old imported posts per category.
+ *
+ * @param string $category_identifier Category slug/id.
+ * @param int    $keep_count Number to keep (+buffer).
+ * @return void
+ */
+function cleanup_old_imported_posts_by_category($category_identifier, $keep_count = 5) {
+    $keep_with_buffer = max(1, (int) $keep_count) + 2;
+
+    $all_post_ids = get_posts(array(
+        'post_type' => 'post',
+        'post_status' => 'any',
+        'posts_per_page' => -1,
+        'orderby' => 'date',
+        'order' => 'DESC',
+        'fields' => 'ids',
+        'meta_query' => array(
+            array(
+                'key' => 'utm_news_category_id',
+                'value' => (string) $category_identifier,
+                'compare' => '=',
+            ),
+        ),
+    ));
+
+    if (count($all_post_ids) <= $keep_with_buffer) {
+        return;
+    }
+
+    $posts_to_trash = array_slice($all_post_ids, $keep_with_buffer);
+    foreach ($posts_to_trash as $post_id) {
+        wp_trash_post($post_id);
+    }
+}
+
+/**
  * Import posts by one department.
  *
  * @param string $department_identifier Department slug or ID.
@@ -574,6 +743,168 @@ function import_utm_news_posts_flexible($department_identifier = '', $import_cou
 }
 
 /**
+ * Import posts by one category.
+ *
+ * @param string $category_identifier Category slug or ID.
+ * @param int    $import_count Number of posts.
+ * @return bool
+ */
+function import_utm_news_posts_by_category_flexible($category_identifier = '', $import_count = 5) {
+    if (empty($category_identifier)) {
+        return false;
+    }
+
+    $resolved_category_id = resolve_category_slug_to_id($category_identifier);
+    $remote_per_page = max(1, (int) $import_count);
+
+    $transient_key = 'utm_news_cat_' . sanitize_key($category_identifier) . '_count_' . (int) $remote_per_page;
+    if (get_transient($transient_key) !== false) {
+        return true;
+    }
+
+    $response = wp_remote_get(add_query_arg(array(
+        'per_page' => $remote_per_page,
+        'categories' => $resolved_category_id,
+        '_embed' => 1,
+    ), UTM_NEWS_SOURCE_POSTS_ENDPOINT), array(
+        'timeout' => 20,
+        'sslverify' => true,
+    ));
+
+    if (is_wp_error($response)) {
+        error_log('UTM News Category Import Error: ' . $response->get_error_message());
+        return false;
+    }
+
+    $response_code = (int) wp_remote_retrieve_response_code($response);
+    if ($response_code !== 200) {
+        error_log('UTM News Category Import Error: HTTP ' . $response_code . ' for category ' . $category_identifier);
+        return false;
+    }
+
+    $posts = json_decode(wp_remote_retrieve_body($response), true);
+    if (empty($posts) || !is_array($posts)) {
+        return false;
+    }
+
+    $imported_count = 0;
+
+    foreach ($posts as $post) {
+        $remote_id = isset($post['id']) ? (int) $post['id'] : 0;
+        $remote_url = isset($post['link']) ? esc_url_raw($post['link']) : '';
+        $remote_title = isset($post['title']['rendered']) ? wp_strip_all_tags($post['title']['rendered']) : '';
+        $remote_content = isset($post['content']['rendered']) ? $post['content']['rendered'] : '';
+        $remote_date = isset($post['date']) ? $post['date'] : current_time('mysql');
+        $remote_modified = isset($post['modified_gmt']) ? $post['modified_gmt'] : '';
+        $remote_excerpt = isset($post['excerpt']['rendered']) ? wp_strip_all_tags($post['excerpt']['rendered']) : '';
+        $remote_categories = isset($post['categories']) ? (array) $post['categories'] : array();
+
+        if (!$remote_id || empty($remote_url) || empty($remote_title)) {
+            continue;
+        }
+
+        $existing_post = get_posts(array(
+            'post_type' => 'post',
+            'post_status' => 'any',
+            'posts_per_page' => 1,
+            'meta_query' => array(
+                'relation' => 'OR',
+                array(
+                    'key' => 'utm_news_original_id',
+                    'value' => $remote_id,
+                    'compare' => '=',
+                ),
+                array(
+                    'key' => 'utm_news_original_url',
+                    'value' => $remote_url,
+                    'compare' => '=',
+                ),
+            ),
+        ));
+
+        $local_category_ids = utm_news_map_remote_categories_to_local($remote_categories);
+        if (empty($local_category_ids)) {
+            $fallback = get_term_by('slug', 'news', 'category');
+            if (!$fallback) {
+                $created = wp_insert_term('News', 'category', array('slug' => 'news'));
+                if (!is_wp_error($created) && !empty($created['term_id'])) {
+                    $fallback = get_term_by('id', (int) $created['term_id'], 'category');
+                }
+            }
+            if ($fallback && !is_wp_error($fallback)) {
+                $local_category_ids = array((int) $fallback->term_id);
+            }
+        }
+
+        if (!empty($existing_post)) {
+            $local = $existing_post[0];
+            $local_modified = !empty($local->post_modified_gmt) ? $local->post_modified_gmt : $local->post_modified;
+
+            if (empty($remote_modified) || strtotime($remote_modified) > strtotime($local_modified)) {
+                wp_update_post(array(
+                    'ID' => $local->ID,
+                    'post_title' => $remote_title,
+                    'post_content' => $remote_content,
+                    'post_excerpt' => $remote_excerpt,
+                    'post_date' => $remote_date,
+                    'post_status' => 'publish',
+                ));
+
+                if (!empty($local_category_ids)) {
+                    wp_set_post_categories($local->ID, $local_category_ids);
+                }
+
+                if (!empty($post['featured_media'])) {
+                    $stored_media_id = (int) get_post_meta($local->ID, 'utm_news_original_media_id', true);
+                    if ($stored_media_id !== (int) $post['featured_media']) {
+                        import_featured_image_from_url($local->ID, (int) $post['featured_media'], $remote_id);
+                    }
+                }
+
+                update_post_meta($local->ID, 'utm_news_remote_modified', $remote_modified);
+                update_post_meta($local->ID, 'utm_news_original_url', $remote_url);
+                update_post_meta($local->ID, 'utm_news_category_id', (string) $category_identifier);
+                $imported_count++;
+            }
+
+            continue;
+        }
+
+        $post_id = wp_insert_post(array(
+            'post_title' => $remote_title,
+            'post_content' => $remote_content,
+            'post_excerpt' => $remote_excerpt,
+            'post_status' => 'publish',
+            'post_date' => $remote_date,
+            'post_author' => 1,
+            'post_category' => $local_category_ids,
+        ));
+
+        if ($post_id && !is_wp_error($post_id)) {
+            if (!empty($post['featured_media'])) {
+                import_featured_image_from_url($post_id, (int) $post['featured_media'], $remote_id);
+            }
+
+            update_post_meta($post_id, 'utm_news_original_id', $remote_id);
+            update_post_meta($post_id, 'utm_news_original_url', $remote_url);
+            update_post_meta($post_id, 'utm_news_category_id', (string) $category_identifier);
+            update_post_meta($post_id, 'utm_news_imported_date', current_time('mysql'));
+            update_post_meta($post_id, 'utm_news_remote_modified', $remote_modified);
+
+            $imported_count++;
+        }
+    }
+
+    set_transient($transient_key, array(
+        'last_import' => current_time('mysql'),
+        'imported_count' => $imported_count,
+    ), HOUR_IN_SECONDS);
+
+    error_log('UTM News Import: Imported/updated ' . $imported_count . ' post(s) for category ' . $category_identifier);
+    return true;
+}
+
+/**
  * Schedule cron if not already scheduled.
  *
  * @return void
@@ -604,6 +935,7 @@ function utm_news_run_hourly_import() {
 
     $settings = utm_news_get_settings();
     $selected = (array) $settings['selected_departments'];
+    $selected_categories = (array) $settings['selected_categories'];
     $import_count = (int) $settings['import_count'];
     $retention_mode = $settings['retention_mode'];
     $keep_latest_count = max(1, (int) $settings['keep_latest_count']);
@@ -614,6 +946,16 @@ function utm_news_run_hourly_import() {
 
             if ($retention_mode === 'latest_only') {
                 cleanup_old_imported_posts($department_identifier, $keep_latest_count);
+            }
+        }
+    }
+
+    if (!empty($selected_categories)) {
+        foreach ($selected_categories as $category_identifier) {
+            import_utm_news_posts_by_category_flexible($category_identifier, $import_count);
+
+            if ($retention_mode === 'latest_only') {
+                cleanup_old_imported_posts_by_category($category_identifier, $keep_latest_count);
             }
         }
     }
@@ -630,7 +972,7 @@ add_action(UTM_NEWS_CRON_HOOK, 'utm_news_run_hourly_import');
  */
 function utm_news_register_admin_menu() {
     add_submenu_page(
-        'utm-webmaster-dashboard',
+        'edit.php',
         'UTM News Import',
         'UTM News Import',
         'manage_options',
@@ -656,6 +998,9 @@ function utm_news_handle_settings_save() {
 
     $selected_departments = isset($_POST['selected_departments']) ? (array) $_POST['selected_departments'] : array();
     $settings['selected_departments'] = array_values(array_unique(array_filter(array_map('sanitize_text_field', $selected_departments))));
+
+    $selected_categories = isset($_POST['selected_categories']) ? (array) $_POST['selected_categories'] : array();
+    $settings['selected_categories'] = array_values(array_unique(array_filter(array_map('sanitize_text_field', $selected_categories))));
 
     $display_style = isset($_POST['display_style']) ? sanitize_text_field($_POST['display_style']) : 'basic_list';
     $settings['display_style'] = in_array($display_style, array('basic_list', 'card'), true) ? $display_style : 'basic_list';
@@ -702,6 +1047,29 @@ function utm_news_handle_refresh_departments() {
     exit;
 }
 add_action('admin_post_utm_news_refresh_departments', 'utm_news_handle_refresh_departments');
+
+/**
+ * Refresh category list handler.
+ *
+ * @return void
+ */
+function utm_news_handle_refresh_categories() {
+    if (!current_user_can('manage_options')) {
+        wp_die('Unauthorized');
+    }
+
+    check_admin_referer('utm_news_refresh_categories');
+
+    $result = utm_news_get_categories(true);
+    $ok = !is_wp_error($result) ? 1 : 0;
+
+    wp_redirect(add_query_arg(array(
+        'page' => 'utm-news-import-settings',
+        'utm_news_cat_refresh' => $ok,
+    ), admin_url('admin.php')));
+    exit;
+}
+add_action('admin_post_utm_news_refresh_categories', 'utm_news_handle_refresh_categories');
 
 /**
  * Manual run handler.
@@ -753,9 +1121,13 @@ function utm_news_render_admin_page() {
 
     $settings = utm_news_get_settings();
     $selected_departments = (array) $settings['selected_departments'];
+    $selected_categories = (array) $settings['selected_categories'];
     $departments = utm_news_get_departments(false);
+    $categories = utm_news_get_categories(false);
     $dept_cache = get_option(UTM_NEWS_DEPT_CACHE_OPTION, array());
+    $cat_cache = get_option(UTM_NEWS_CAT_CACHE_OPTION, array());
     $last_cached = (!empty($dept_cache['updated_at'])) ? $dept_cache['updated_at'] : 'Never';
+    $last_cached_categories = (!empty($cat_cache['updated_at'])) ? $cat_cache['updated_at'] : 'Never';
     $last_import = get_option('utm_news_last_hourly_import', 'Never');
     $next_cron = wp_next_scheduled(UTM_NEWS_CRON_HOOK);
 
@@ -772,6 +1144,13 @@ function utm_news_render_admin_page() {
             echo '<div class="notice notice-error is-dismissible"><p>Failed to refresh department list.</p></div>';
         }
     }
+    if (isset($_GET['utm_news_cat_refresh'])) {
+        if ((int) $_GET['utm_news_cat_refresh'] === 1) {
+            echo '<div class="notice notice-success is-dismissible"><p>Category list refreshed successfully.</p></div>';
+        } else {
+            echo '<div class="notice notice-error is-dismissible"><p>Failed to refresh category list.</p></div>';
+        }
+    }
     if (isset($_GET['utm_news_run_now'])) {
         if ((int) $_GET['utm_news_run_now'] === 1) {
             echo '<div class="notice notice-success is-dismissible"><p>Import run triggered.</p></div>';
@@ -785,6 +1164,7 @@ function utm_news_render_admin_page() {
     }
 
     echo '<p><strong>Department cache updated:</strong> ' . esc_html($last_cached) . '</p>';
+    echo '<p><strong>Category cache updated:</strong> ' . esc_html($last_cached_categories) . '</p>';
     echo '<p><strong>Last hourly import:</strong> ' . esc_html($last_import) . '</p>';
     echo '<p><strong>Next scheduled run:</strong> ' . esc_html($next_cron ? date_i18n('Y-m-d H:i:s', $next_cron) : 'Not scheduled') . '</p>';
 
@@ -792,6 +1172,12 @@ function utm_news_render_admin_page() {
     wp_nonce_field('utm_news_refresh_departments');
     echo '<input type="hidden" name="action" value="utm_news_refresh_departments" />';
     submit_button('Sync Departments from news.utm.my', 'secondary', 'submit', false);
+    echo '</form>';
+
+    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0;">';
+    wp_nonce_field('utm_news_refresh_categories');
+    echo '<input type="hidden" name="action" value="utm_news_refresh_categories" />';
+    submit_button('Sync Categories from news.utm.my', 'secondary', 'submit', false);
     echo '</form>';
 
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 24px;">';
@@ -803,6 +1189,11 @@ function utm_news_render_admin_page() {
     if (is_wp_error($departments)) {
         echo utm_news_get_helper_function_prompt_html();
         $departments = array();
+    }
+
+    if (is_wp_error($categories)) {
+        echo '<div class="notice notice-warning"><p><strong>Category list fetch failed.</strong> Unable to fetch categories from <code>' . esc_html(UTM_NEWS_SOURCE_CAT_ENDPOINT) . '</code>.</p></div>';
+        $categories = array();
     }
 
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
@@ -841,6 +1232,38 @@ function utm_news_render_admin_page() {
         echo '</div>';
     }
 
+    echo '<h2 style="margin-top:24px;">Select Categories to Import</h2>';
+
+    if (empty($categories)) {
+        echo '<p>No category data available yet. Please click "Sync Categories from news.utm.my".</p>';
+    } else {
+        echo '<div style="max-height:280px; overflow:auto; border:1px solid #ccd0d4; padding:12px; background:#fff;">';
+        foreach ($categories as $cat) {
+            $value = isset($cat['value']) ? $cat['value'] : '';
+            $label = isset($cat['name']) ? $cat['name'] : $value;
+            if ($value === '') {
+                continue;
+            }
+
+            $meta = array();
+            if (!empty($cat['slug'])) {
+                $meta[] = 'slug: ' . $cat['slug'];
+            }
+            if (!empty($cat['id'])) {
+                $meta[] = 'id: ' . $cat['id'];
+            }
+
+            echo '<label style="display:block; margin-bottom:8px;">';
+            echo '<input type="checkbox" name="selected_categories[]" value="' . esc_attr($value) . '" ' . checked(in_array($value, $selected_categories, true), true, false) . ' /> ';
+            echo esc_html($label);
+            if (!empty($meta)) {
+                echo ' <span style="color:#666;">(' . esc_html(implode(', ', $meta)) . ')</span>';
+            }
+            echo '</label>';
+        }
+        echo '</div>';
+    }
+
     echo '<h2 style="margin-top:24px;">Display & Import Settings</h2>';
 
     echo '<table class="form-table" role="presentation">';
@@ -851,7 +1274,7 @@ function utm_news_render_admin_page() {
     echo '</select>';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row"><label for="import_count">Import count (per department / run)</label></th><td>';
+    echo '<tr><th scope="row"><label for="import_count">Import count (per department/category / run)</label></th><td>';
     echo '<input type="number" min="1" max="20" id="import_count" name="import_count" value="' . esc_attr((string) $settings['import_count']) . '" />';
     echo '</td></tr>';
 
@@ -862,7 +1285,7 @@ function utm_news_render_admin_page() {
     echo '</select>';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row"><label for="keep_latest_count">Keep latest count (per department)</label></th><td>';
+    echo '<tr><th scope="row"><label for="keep_latest_count">Keep latest count (per department/category)</label></th><td>';
     echo '<input type="number" min="1" max="200" id="keep_latest_count" name="keep_latest_count" value="' . esc_attr((string) $settings['keep_latest_count']) . '" />';
     echo '<p class="description">Used only when retention mode is set to <strong>Keep latest only</strong>.</p>';
     echo '</td></tr>';
