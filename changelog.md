@@ -1,6 +1,10 @@
 # Changelog - UTM Webmaster Tool
 
-## [2026-04-02] - per-site conditional redirects module
+## [2026-04-02] - per-site conditional redirects module (v5.54)
+
+### Version bump
+
+- Version bump: 5.53 → 5.54
 
 ### Problem
 - Needed a configurable redirect module so admins can route users by condition without custom code.
@@ -21,6 +25,11 @@
 - Registered module in plugin loader list (`index.php`).
 - Added usage/examples to `README.md`.
 
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/conditional-redirects.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/README.md`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
 ### Files Modified
 - `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/conditional-redirects.php` (new)
 - `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
