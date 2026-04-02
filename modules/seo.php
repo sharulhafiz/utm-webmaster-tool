@@ -8,12 +8,38 @@ if (!defined('ABSPATH')) {
 add_action('wp_head', 'utm_seo', 5);
 
 /**
+ * Determine whether current request is Divi visual/builder context.
+ *
+ * @return bool
+ */
+function utm_is_divi_builder_request() {
+    $divi_query_flags = array('et_fb', 'et_bfb', 'et_pb_preview');
+
+    foreach ($divi_query_flags as $flag) {
+        if (isset($_GET[$flag])) {
+            return true;
+        }
+    }
+
+    if (function_exists('et_core_is_fb_enabled') && et_core_is_fb_enabled()) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Main SEO bootstrap for head output.
  */
 function utm_seo() {
     if ((!is_admin())) {
         // Output Open Graph and Twitter Card metadata.
         utm_output_social_meta_tags();
+
+        // Skip analytics/tracking in Divi builder contexts (top/app dual-window execution).
+        if (utm_is_divi_builder_request()) {
+            return;
+        }
 
         global $post;
 

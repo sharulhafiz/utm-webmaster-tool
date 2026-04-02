@@ -54,7 +54,7 @@ add_filter('wp_mail_from_name', function($name) {
 // Add UTM Email admin menu and log viewer page
 add_action('admin_menu', function() {
     add_submenu_page(
-        'utm-webmaster-dashboard',
+        'tools.php',
         'UTM Email Log v1',
         'UTM Email',
         'manage_options',

@@ -1,6 +1,8 @@
 **/desktop.ini
 **/update/*
 .github/instructions/
-.vscode/
+.vscode/*
 plans/
 tests/
+.agents/
+.github/

@@ -273,7 +273,7 @@ function post_export_rest_handler($request) {
 
 // Add menu under Posts
 function register_postExport_admin_menu(){
-    add_submenu_page('utm-webmaster-dashboard', 'Export Posts', 'Export Posts', 'manage_options', 'post_export', 'post_export');
+    add_submenu_page('edit.php', 'Export Posts', 'Export Posts', 'manage_options', 'post_export', 'post_export');
 }
 add_action('admin_menu', 'register_postExport_admin_menu');
 

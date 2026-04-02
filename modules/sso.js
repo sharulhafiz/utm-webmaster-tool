@@ -83,6 +83,7 @@ document.addEventListener("DOMContentLoaded", function() {
 		// Check for debug mode in URL parameters
 		var urlParams = new URLSearchParams(window.location.search);
 		var debugParam = urlParams.get('debug');
+		var redirectTo = urlParams.get('redirect_to') || '';
 
 		// If PIN field is hidden, treat as requesting PIN
 		if (!pinSent && emailField.value) {
@@ -180,7 +181,8 @@ document.addEventListener("DOMContentLoaded", function() {
 				data: {
 					action: 'validate_pin',
 					email: emailField.value,
-					pin: passwordField.value
+					pin: passwordField.value,
+					redirect_to: redirectTo
 				},
 				   success: function(response) {
 					   if (document.getElementById("loader")) document.getElementById("loader").remove();

@@ -164,7 +164,10 @@ function sso_hide_remember_me() {
 // Enqueue custom scripts for the login page.
 add_action( 'login_enqueue_scripts', 'sso_enqueue_scripts' );
 function sso_enqueue_scripts() {
-    wp_enqueue_script( 'sso-script', plugin_dir_url( __FILE__ ) . 'sso.js?ver='.UTM_PLUGIN_VERSION, array( 'jquery' ), null, true );
+    $sso_script_path = plugin_dir_path( __FILE__ ) . 'sso.js';
+    $sso_script_ver  = file_exists( $sso_script_path ) ? (string) filemtime( $sso_script_path ) : UTM_PLUGIN_VERSION;
+
+    wp_enqueue_script( 'sso-script', plugin_dir_url( __FILE__ ) . 'sso.js', array( 'jquery' ), $sso_script_ver, true );
     wp_localize_script( 'sso-script', 'sso_ajax', array(
         'ajax_url' => admin_url( 'admin-ajax.php' )
     ));
@@ -369,10 +372,11 @@ function sso_validate_pin() {
         // Record last login for PIN-based SSO validation
         update_user_meta( $user->ID, 'last_login', time() );
         
-        // Determine redirect URL
+        // Determine redirect URL (safe internal redirect)
         $redirect_url = admin_url();
-        if ( !empty($_REQUEST['redirect_to']) ) {
-            $redirect_url = $_REQUEST['redirect_to'];
+        if ( ! empty( $_REQUEST['redirect_to'] ) ) {
+            $redirect_candidate = wp_unslash( (string) $_REQUEST['redirect_to'] );
+            $redirect_url = wp_validate_redirect( $redirect_candidate, $redirect_url );
         }
         
         // Return a JSON object with redirect URL
@@ -446,10 +450,11 @@ function utm_sso(){
             wp_set_auth_cookie($user->ID, true);
             // Record last login for cookie-based SSO auto-login
             update_user_meta($user->ID, 'last_login', time());
-            // Determine redirect URL
+            // Determine redirect URL (safe internal redirect)
             $redirect_url = admin_url();
-            if (isset($_GET['redirect_to'])) {
-                $redirect_url = $_GET['redirect_to'];
+            if ( ! empty( $_REQUEST['redirect_to'] ) ) {
+                $redirect_candidate = wp_unslash( (string) $_REQUEST['redirect_to'] );
+                $redirect_url = wp_validate_redirect( $redirect_candidate, $redirect_url );
             }
             // Redirect to the appropriate location
             wp_safe_redirect($redirect_url);
