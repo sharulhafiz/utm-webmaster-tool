@@ -96,6 +96,7 @@ The plugin includes 40+ specialized modules organized by function:
 | Module | Description |
 |--------|-------------|
 | `cache-monitor.php` | Cache performance monitoring |
+| `email-gate.php` | Per-site email domain gating for login/registration |
 | `conditional-redirects.php` | Per-site conditional redirects (front page/login page/login state) |
 | `performance-patch.php` | WordPress performance optimizations |
 | `debug.php` | Debug tools and logging |

@@ -1,5 +1,29 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-04-02] - email gate module (v5.56)
+
+### Version bump
+
+- Version bump: 5.55 → 5.56
+
+### Problem
+- Needed a real, configurable module for restricting login and registration by email domain.
+- The `email-gate.php` helper file was only a placeholder and not doing any enforcement.
+
+### Solution
+- Implemented `modules/email-gate.php` as a per-site email-gating module.
+- Added a settings page under `Settings → Email Gate`.
+- Added login authentication blocking for disallowed email domains.
+- Added registration blocking for disallowed email domains.
+- Registered the module in `index.php`.
+- Documented the module in `README.md`.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/email-gate.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/README.md`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+
 ## [2026-04-02] - cache reset + login verification (v5.55)
 
 ### Version bump

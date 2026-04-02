@@ -100,6 +100,7 @@ function utm_get_all_module_slugs() {
         'seo',
         'shortcodes',
         'sso',
+        'email-gate',
         'staffapi',
         'support.utm.my',
         'timezone',
