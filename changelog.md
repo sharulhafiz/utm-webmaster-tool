@@ -1,5 +1,51 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-04-02] - per-site conditional redirects module
+
+### Problem
+- Needed a configurable redirect module so admins can route users by condition without custom code.
+- Required conditions: front page, login page, logged-in, and non-logged-in.
+- Redirect behavior must be controlled **per site**, not network-wide.
+
+### Solution
+- Added new module: `modules/conditional-redirects.php`.
+- Added per-site settings screen:
+  - `Site Dashboard → Settings → UTM Redirects`
+- Implemented condition-based safe redirects for:
+  - Front page (`is_front_page()`)
+  - Login page (`wp-login.php`)
+  - Logged-in frontend users
+  - Non-logged-in frontend users
+- Added request safety gates to skip admin, AJAX, cron, REST, and XML-RPC requests.
+- Added loop prevention and URL validation before redirecting.
+- Registered module in plugin loader list (`index.php`).
+- Added usage/examples to `README.md`.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/conditional-redirects.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/README.md`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+
+## [2026-04-01] - plugin version endpoint + menu rollout verification
+
+### Problem
+- Needed a reliable, public way to verify the running `utm-webmaster-tool` version per domain (`www`, `news`, `events`, `people`) during menu restructuring rollout.
+- No dedicated version endpoint existed in the plugin.
+
+### Solution
+- Added new module: `modules/version-endpoint.php`.
+- Registered a public REST route:
+  - `GET /wp-json/utm-webmaster/v1/version`
+- Endpoint returns plugin slug, current `UTM_PLUGIN_VERSION`, `site_url`, and timestamp.
+- Added the new module to loader list and marked it REST-context aware in bootstrap gating.
+- Version bump: `5.52` → `5.53`.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/version-endpoint.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+
 ## [2026-03-19] - admission programmes importer module
 
 ### Problem

@@ -96,6 +96,7 @@ The plugin includes 40+ specialized modules organized by function:
 | Module | Description |
 |--------|-------------|
 | `cache-monitor.php` | Cache performance monitoring |
+| `conditional-redirects.php` | Per-site conditional redirects (front page/login page/login state) |
 | `performance-patch.php` | WordPress performance optimizations |
 | `debug.php` | Debug tools and logging |
 | `loginlogger.php` | User login activity tracking |
@@ -141,6 +142,35 @@ Network Admin → UTM Analytics → View Reports
 ```
 Network Admin → UTM News → Import from Source
 ```
+
+### Conditional Redirects (Per-Site)
+
+Use this module when a site admin needs simple condition-based redirects without writing custom code.
+
+**Admin path (per site):**
+`Site Dashboard → Settings → UTM Redirects`
+
+Available conditions:
+- **Front page**: redirect requests for the site front page.
+- **Login page**: redirect visits to `wp-login.php`.
+- **Logged-in users**: redirect authenticated users on frontend requests.
+- **Non-logged-in users**: redirect guest users on frontend requests.
+
+How to configure each rule:
+1. Check **Enable redirect for this condition**.
+2. Set **Target URL** (absolute URL).
+3. Save changes.
+
+Example setup:
+- Front page → `https://www.utm.my/welcome/`
+- Login page → `https://sso.utm.my/`
+- Logged-in users → `https://people.utm.my/dashboard/`
+- Non-logged-in users → `https://www.utm.my/login/`
+
+Notes:
+- Rules are stored per site (not network-global).
+- Redirects skip admin, AJAX, cron, REST, and XML-RPC requests.
+- Loop protection is included (same current URL and target URL will not redirect).
 
 ## 🔧 Configuration
 
