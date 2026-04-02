@@ -107,6 +107,7 @@ function utm_get_all_module_slugs() {
         'usermeta',
         'utmlenses',
         'utm-news-import',
+        'version-endpoint',
         'disable-rss-feeds',
         'conditional-redirects',
         'divi-redis-cache',
