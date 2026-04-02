@@ -1,5 +1,25 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-04-02] - cache reset + login verification (v5.55)
+
+### Version bump
+
+- Version bump: 5.54 → 5.55
+
+### Problem
+- Needed to clear host-wide caches so the SSO/login behavior could be re-checked across the active WordPress containers.
+- The login page on non-main sites needed to reflect the current SSO module state after cache refresh.
+
+### Solution
+- Restarted all active PHP-FPM containers on the host to clear OPcache.
+- Restarted all Redis containers to flush shared object cache.
+- Verified the support login page shows the SSO marker again after the cache reset.
+- Bumped plugin version so the deployment state is explicit in the plugin metadata.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+
 ## [2026-04-02] - per-site conditional redirects module (v5.54)
 
 ### Version bump
