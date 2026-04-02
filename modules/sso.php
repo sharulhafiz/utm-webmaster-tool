@@ -161,6 +161,175 @@ function sso_hide_remember_me() {
     .login form p.submit input#wp-submit { background: maroon; border-color: maroon; }</style>';
 }
 
+/**
+ * Parse a comma/space-separated domain allowlist.
+ *
+ * @param string $domains Raw domain list.
+ * @return array
+ */
+function sso_parse_allowed_domains( $domains ) {
+    $domains = strtolower( (string) $domains );
+    $parts = preg_split( '/[\s,]+/', $domains );
+
+    if ( ! is_array( $parts ) ) {
+        return array();
+    }
+
+    $allowed = array();
+    foreach ( $parts as $part ) {
+        $part = ltrim( trim( $part ), '@' );
+        if ( '' !== $part ) {
+            $allowed[] = $part;
+        }
+    }
+
+    return array_values( array_unique( $allowed ) );
+}
+
+/**
+ * Return the allowed domains shared by SSO auto-create and email gating.
+ *
+ * @return array
+ */
+function sso_get_allowed_domains() {
+    $domains = get_option( 'sso_allowed_domains', 'utm.my' );
+    $allowed = sso_parse_allowed_domains( $domains );
+
+    if ( empty( $allowed ) ) {
+        $allowed = array( 'utm.my' );
+    }
+
+    return $allowed;
+}
+
+/**
+ * Check whether a given email is allowed by the domain list.
+ *
+ * @param string $email Email address.
+ * @param array  $allowed_domains Allowed domains.
+ * @return bool
+ */
+function sso_email_domain_is_allowed( $email, $allowed_domains ) {
+    $email = sanitize_email( $email );
+
+    if ( empty( $email ) || false === strpos( $email, '@' ) ) {
+        return false;
+    }
+
+    $email_domain = strtolower( substr( strrchr( $email, '@' ), 1 ) );
+    if ( empty( $email_domain ) ) {
+        return false;
+    }
+
+    foreach ( $allowed_domains as $allowed_domain ) {
+        $allowed_domain = strtolower( trim( (string) $allowed_domain ) );
+        if ( '' === $allowed_domain ) {
+            continue;
+        }
+
+        if ( $email_domain === $allowed_domain ) {
+            return true;
+        }
+
+        if ( substr( $email_domain, -strlen( '.' . $allowed_domain ) ) === '.' . $allowed_domain ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Whether email gate is enabled for this site.
+ *
+ * @return bool
+ */
+function sso_email_gate_enabled() {
+    return (bool) get_option( 'sso_email_gate_enabled', 0 );
+}
+
+/**
+ * Whether registration blocking is enabled for this site.
+ *
+ * @return bool
+ */
+function sso_email_gate_block_registration() {
+    return (bool) get_option( 'sso_email_gate_block_registration', 1 );
+}
+
+/**
+ * Authenticate filter: block disallowed email domains.
+ *
+ * @param WP_User|WP_Error|null $user User from previous auth step.
+ * @param string                $username Username or email.
+ * @param string                $password Password.
+ * @return WP_User|WP_Error|null
+ */
+function sso_email_gate_authenticate( $user, $username, $password ) {
+    if ( is_wp_error( $user ) || ! sso_email_gate_enabled() || empty( $username ) ) {
+        return $user;
+    }
+
+    if ( false === strpos( (string) $username, '@' ) ) {
+        return $user;
+    }
+
+    $email = sanitize_email( $username );
+    if ( empty( $email ) ) {
+        return new WP_Error(
+            'sso_email_gate_invalid_email',
+            __( 'Please enter a valid email address.', 'utm-webmaster' )
+        );
+    }
+
+    $existing_user = get_user_by( 'email', $email );
+    if ( $existing_user && is_super_admin( $existing_user->ID ) ) {
+        return $user;
+    }
+
+    if ( sso_email_domain_is_allowed( $email, sso_get_allowed_domains() ) ) {
+        return $user;
+    }
+
+    return new WP_Error(
+        'sso_email_gate_blocked',
+        sprintf(
+            __( 'Login is restricted to these email domains: %s', 'utm-webmaster' ),
+            implode( ', ', sso_get_allowed_domains() )
+        )
+    );
+}
+add_filter( 'authenticate', 'sso_email_gate_authenticate', 30, 3 );
+
+/**
+ * registration_errors filter: block disallowed email domains.
+ *
+ * @param WP_Error $errors Error object.
+ * @param string   $sanitized_user_login Sanitized username.
+ * @param string   $user_email User email.
+ * @return WP_Error
+ */
+function sso_email_gate_registration_errors( $errors, $sanitized_user_login, $user_email ) {
+    if ( ! sso_email_gate_enabled() || ! sso_email_gate_block_registration() ) {
+        return $errors;
+    }
+
+    if ( sso_email_domain_is_allowed( $user_email, sso_get_allowed_domains() ) ) {
+        return $errors;
+    }
+
+    $errors->add(
+        'sso_email_gate_registration_blocked',
+        sprintf(
+            __( 'Registration is restricted to these email domains: %s', 'utm-webmaster' ),
+            implode( ', ', sso_get_allowed_domains() )
+        )
+    );
+
+    return $errors;
+}
+add_filter( 'registration_errors', 'sso_email_gate_registration_errors', 10, 3 );
+
 // Enqueue custom scripts for the login page.
 add_action( 'login_enqueue_scripts', 'sso_enqueue_scripts' );
 function sso_enqueue_scripts() {
@@ -617,7 +786,7 @@ function sso_clear_cookies() {
 // === SSO Settings Page ===
 add_action('admin_menu', 'sso_settings_menu');
 function sso_settings_menu() {
-    add_options_page(
+    add_users_page(
         'SSO Settings',
         'SSO Settings',
         'manage_options',
@@ -634,14 +803,20 @@ function sso_settings_page() {
         $auto_create = isset($_POST['sso_auto_create']) ? 1 : 0;
         $domains = isset($_POST['sso_allowed_domains']) ? sanitize_text_field($_POST['sso_allowed_domains']) : 'utm.my';
         $role = isset($_POST['sso_default_role']) ? sanitize_text_field($_POST['sso_default_role']) : 'author';
+        $email_gate_enabled = isset($_POST['sso_email_gate_enabled']) ? 1 : 0;
+        $email_gate_block_registration = isset($_POST['sso_email_gate_block_registration']) ? 1 : 0;
         update_option('sso_auto_create', $auto_create);
         update_option('sso_allowed_domains', $domains);
         update_option('sso_default_role', $role);
+        update_option('sso_email_gate_enabled', $email_gate_enabled);
+        update_option('sso_email_gate_block_registration', $email_gate_block_registration);
         echo '<div class="updated"><p>Settings saved.</p></div>';
     }
     $auto_create = get_option('sso_auto_create', 1);
     $domains = get_option('sso_allowed_domains', 'utm.my');
     $role = get_option('sso_default_role', 'author');
+    $email_gate_enabled = get_option('sso_email_gate_enabled', 0);
+    $email_gate_block_registration = get_option('sso_email_gate_block_registration', 1);
     $roles = wp_roles()->roles;
     ?>
     <div class="wrap">
@@ -665,6 +840,14 @@ function sso_settings_page() {
                             <option value="<?php echo esc_attr($role_key); ?>" <?php selected($role, $role_key); ?>><?php echo esc_html($role_data['name']); ?></option>
                         <?php endforeach; ?>
                         </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Email gate</th>
+                    <td>
+                        <label><input type="checkbox" name="sso_email_gate_enabled" value="1" <?php checked($email_gate_enabled, 1); ?> /> Enable email-domain gating on login</label><br>
+                        <label><input type="checkbox" name="sso_email_gate_block_registration" value="1" <?php checked($email_gate_block_registration, 1); ?> /> Block registration from disallowed domains</label><br>
+                        <small>Uses the same allowed email domains as the auto-create feature above.</small>
                     </td>
                 </tr>
             </table>

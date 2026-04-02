@@ -73,7 +73,7 @@ The plugin includes 40+ specialized modules organized by function:
 | `analytics.php` | Custom analytics with REST API for CSV export |
 | `backup.php` | Automated database and menu backups |
 | `people.utm.my.php` | User site management with auto-creation |
-| `sso.php` | Single Sign-On integration |
+| `sso.php` | Single Sign-On integration and email-domain gating |
 | `multisite-api.php` | REST API endpoints for multisite operations |
 
 ### User Management
@@ -96,11 +96,15 @@ The plugin includes 40+ specialized modules organized by function:
 | Module | Description |
 |--------|-------------|
 | `cache-monitor.php` | Cache performance monitoring |
-| `email-gate.php` | Per-site email domain gating for login/registration |
 | `conditional-redirects.php` | Per-site conditional redirects (front page/login page/login state) |
 | `performance-patch.php` | WordPress performance optimizations |
 | `debug.php` | Debug tools and logging |
 | `loginlogger.php` | User login activity tracking |
+
+### Access & Authentication
+| Module | Description |
+|--------|-------------|
+| `sso.php` | Login, SSO, and email-domain gating controls |
 
 For detailed documentation on specific modules, see the `modules/` directory documentation files:
 - [People Module Guide](modules/PEOPLE_MODULE_QUICK_REFERENCE.md)

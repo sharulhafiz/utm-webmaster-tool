@@ -1,5 +1,26 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-04-02] - merge email gate into SSO (v5.57)
+
+### Version bump
+
+- Version bump: 5.56 → 5.57
+
+### Problem
+- Email-domain gating was split into a separate helper, and the SSO settings page lived under `Settings` instead of the more relevant `Users` menu.
+
+### Solution
+- Merged email-domain gating into `modules/sso.php` so SSO now owns login enforcement.
+- Moved the SSO settings page under `Users`.
+- Removed the standalone `email-gate` module from the loader.
+- Updated README module references to describe SSO as the combined authentication entry point.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sso.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/README.md`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+
 ## [2026-04-02] - email gate module (v5.56)
 
 ### Version bump
