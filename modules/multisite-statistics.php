@@ -6,8 +6,8 @@ function utm_register_admin_menu()
 {
 	add_submenu_page(
 		'sites.php',
-		__('UTM Webmaster Tool', 'textdomain'),
-		'UTM Webmaster Tool',
+		__('Site Statistics', 'textdomain'),
+		'Site Statistics',
 		'manage_network_options',
 		'multisite_statistics',
 		'multisite_statistics'
