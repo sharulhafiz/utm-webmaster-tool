@@ -42,15 +42,6 @@ add_action('phpmailer_init', function($phpmailer) {
     });
 });
 
-// Force From headers to match msmtp relay configuration
-add_filter('wp_mail_from', function($email) {
-    return 'noreply@utm.my';
-});
-
-add_filter('wp_mail_from_name', function($name) {
-    return 'UTM Management';
-});
-
 // Add UTM Email admin menu and log viewer page
 add_action('admin_menu', function() {
     add_submenu_page(
@@ -127,47 +118,3 @@ add_action('wp_mail_failed', function($error) {
     );
     file_put_contents($log_file, $log_message, FILE_APPEND | LOCK_EX);
 });
-
-// // Log email errors for debugging
-// add_action('wp_mail_failed', function($error) {
-//     // set custom mail log in wp-content directory
-//     $log_file = WP_CONTENT_DIR . '/mail_error_log.txt';
-//     $log_message = sprintf("[%s] Mail Error: %s\n", date('Y-m-d H:i:s'), print_r($error, true));
-//     file_put_contents($log_file, $log_message, FILE_APPEND | LOCK_EX);
-// });
-
-// // Use PublishPress options for "From" email and name
-// add_filter('wp_mail_from', function($email) {
-//     $options = get_option('publishpress_notifications_options');
-//     if (is_object($options)) {
-//         $options = (array) $options;
-//     }
-//     return isset($options['email_from']) ? $options['email_from'] : $email;
-// });
-
-// add_filter('wp_mail_from_name', function($name) {
-//     $options = get_option('publishpress_notifications_options');
-//     if (is_object($options)) {
-//         $options = (array) $options;
-//     }
-//     return isset($options['email_from_name']) ? $options['email_from_name'] : $name;
-// });
-
-// // Display the PublishPress options in the admin area
-// add_action('admin_notices', function() {
-//     // Show only on news.utm.my
-//     if ($_SERVER['HTTP_HOST'] !== 'news.utm.my') {
-//         return;
-//     }
-//     $options = get_option('publishpress_notifications_options');
-//     if (is_object($options)) {
-//         $options = (array) $options;
-//     }
-//     $email_from = isset($options['email_from']) ? $options['email_from'] : 'Not set';
-//     // $email_from_name = isset($options['email_from_name']) ? $options['email_from_name'] : 'Not set';
-
-//     echo '<div class="notice notice-info">';
-//     echo '<p><strong>NewsHub Admin Email:</strong> ' . esc_html($email_from) . '</p>';
-//     // echo '<p><strong>PublishPress Email From Name:</strong> ' . esc_html($email_from_name) . '</p>';
-//     echo '</div>';
-// });
