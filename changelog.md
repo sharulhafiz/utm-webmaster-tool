@@ -1,24 +1,5 @@
 # Changelog - UTM Webmaster Tool
 
-## [2026-04-03] - reorganized multisite menus under UTM Plugin (v5.58)
-
-### Version bump
-
-- Version bump: 5.57 → 5.58
-
-### Problem
-- Multisite management functions (Site Statistics, Orphan Users, etc.) were scattered across different WordPress network admin menus (Sites, Users, Settings, Plugins), making it difficult to discover and access them.
-
-### Solution
-- Centralized all multisite management submenus under the main "UTM Plugin" dashboard menu for improved UX and discoverability.
-- Moved Site Statistics from "Sites" menu → "UTM Plugin" menu.
-- Moved Orphan Users, Add To Blogs, Network Admin Email, and Disable Plugin from their respective menus → "UTM Plugin" menu.
-
-### Files Modified
-- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/multisite-statistics.php`
-- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
-- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
-
 ## [2026-04-02] - merge email gate into SSO (v5.57)
 
 ### Version bump

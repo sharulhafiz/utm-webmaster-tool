@@ -1,22 +1,21 @@
 <?php
 // ini_set("memory_limit","512M");
 // multisite statistics
-// add to menu in network under UTM Plugin dashboard
+// add to menu in network
 function utm_register_admin_menu()
 {
-	// Register all multisite management submenus under the main UTM Plugin dashboard
 	add_submenu_page(
-		'utm-webmaster-dashboard',
-		__('Site Statistics', 'textdomain'),
-		'Site Statistics',
+		'sites.php',
+		__('UTM Webmaster Tool', 'textdomain'),
+		'UTM Webmaster Tool',
 		'manage_network_options',
 		'multisite_statistics',
 		'multisite_statistics'
 	);
-	add_submenu_page('utm-webmaster-dashboard', 'Orphan Users', 'Orphan Users', 'manage_network_options', 'delete_orphan_user', 'delete_orphan_user');
-	add_submenu_page('utm-webmaster-dashboard', 'Add To Blogs', 'Add To Blogs', 'manage_network_options', 'add_user_to_blogs', 'add_user_to_blogs');
-	add_submenu_page('utm-webmaster-dashboard', 'Network Admin Email', 'Network Admin Email', 'manage_network_options', 'change_network_admin_email', 'change_network_admin_email');
-	add_submenu_page('utm-webmaster-dashboard', 'Disable Plugin', 'Disable Plugin', 'manage_network_options', 'network_deactivation_page', 'network_deactivation_page');
+	add_submenu_page('users.php', 'Orphan Users', 'Orphan Users', 'manage_network_options', 'delete_orphan_user', 'delete_orphan_user');
+	add_submenu_page('users.php', 'Add To Blogs', 'Add To Blogs', 'manage_network_options', 'add_user_to_blogs', 'add_user_to_blogs');
+	add_submenu_page('settings.php', 'Network Admin', 'Network Admin', 'manage_network_options', 'change_network_admin_email', 'change_network_admin_email');
+	add_submenu_page('plugins.php', 'Disable Plugin', 'Disable Plugin', 'manage_network_options', 'network_deactivation_page', 'network_deactivation_page');
 }
 add_action('network_admin_menu', 'utm_register_admin_menu');
 
