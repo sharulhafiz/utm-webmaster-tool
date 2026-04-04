@@ -1,6 +1,37 @@
 # Changelog - UTM Webmaster Tool
 
-## [2026-04-02] - merge email gate into SSO (v5.57)
+## [2026-04-04] - improve spam detector (v5.58)
+
+### Version bump
+
+- Version bump: 5.57 → 5.58
+
+### Problem
+- Occasional spam comments were still getting through the existing spam filter.
+
+### Solution
+Upgraded `modules/antispam.php` (v2.0 → v2.1) with multiple new defence layers:
+
+- **Honeypot field** — A hidden form field invisible to humans is injected into the comment form. Bots that auto-fill all fields are immediately flagged as spam.
+- **Form timing check** — The timestamp when the form was rendered is stored in a signed hidden field. Submissions arriving in under 3 seconds (typical bot behaviour) are marked as spam.
+- **StopForumSpam IP lookup** — In addition to the existing email check, the commenter's IP is now checked against the StopForumSpam database in real time on every comment submission (with transient caching to avoid repeated API calls).
+- **StopForumSpam email check at submission time** — Previously the email SFS check only ran during the overnight batch scan. It now also runs at the moment a comment is submitted.
+- **Disposable/temp email blocking** — A list of known throwaway email domains (mailinator, yopmail, guerrillamail, etc.) is checked and any comment from those domains is rejected.
+- **HTML injection detection** — Comments containing HTML markup are flagged (legitimate comments rarely contain raw HTML; bots commonly inject it).
+- **Excessive uppercase detection** — Messages where more than 60 % of letters are uppercase are flagged (a common spam-shouting pattern).
+- **Expanded spam patterns** — Added regex patterns for SEO spam, affiliate/follower-selling schemes, sales promotions, and passive-income pitches.
+- **Expanded spam word list** — Added crypto, SEO, social-media follower, affiliate/MLM, pharma, and additional financial spam terms.
+- **Expanded known-spam IP ranges** — Added several well-known Tor exit node and spam network CIDR prefixes.
+- **User agent check** — Comments submitted with an empty HTTP User-Agent header are marked as spam.
+- **All scan paths updated** — The daily batch scan, bulk scan, and manual pending scan now also run the new SFS IP and email checks.
+- **Admin features panel** — Updated to list all active protection layers.
+
+### Files Modified
+- `modules/antispam.php`
+- `index.php`
+- `changelog.md`
+
+
 
 ### Version bump
 
