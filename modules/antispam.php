@@ -5,12 +5,17 @@
  * 
  * Features:
  * - Real-time spam detection with multiple filters
+ * - Honeypot field and form timing check to catch bots
+ * - StopForumSpam API checks for both email and IP at submission time
+ * - Disposable/temp email domain blocking
+ * - HTML injection detection
+ * - User agent validation
  * - Bulk scanning for existing comments
  * - Manual admin interface for spam management
  * - Database cleanup and health monitoring
  * - Rate-limited email notifications
  * 
- * @version 2.0
+ * @version 2.1
  * @author UTM Webmaster Team
  */
 
@@ -45,8 +50,13 @@ function delete_comments() {
         // Mark that comment has been scanned
         update_comment_meta($comment_id, '_spam_scanned', '1');
 
-        // 1. Check with StopForumSpam (cached)
+        // 1. Check email with StopForumSpam (cached)
         if (!empty($comment->comment_author_email) && utm_sfs_check($comment->comment_author_email)) {
+            wp_spam_comment($comment_id);
+            continue;
+        }
+        // 1b. Check IP with StopForumSpam (cached)
+        if (!empty($comment->comment_author_IP) && utm_sfs_check_ip($comment->comment_author_IP)) {
             wp_spam_comment($comment_id);
             continue;
         }
@@ -172,7 +182,18 @@ function is_comment_spam_enhanced($comment) {
         '/very\s+(useful|helpful|good)/i',
         '/check\s+out\s+my\s+(website|blog|site)/i', // Self-promotion
         '/visit\s+my\s+(website|blog|site)/i',
-        '/click\s+here/i'
+        '/click\s+here/i',
+        '/buy\s+(cheap|discount|wholesale)/i',      // Sales spam
+        '/\$\d+\s*(off|discount|coupon)/i',
+        '/free\s+(shipping|delivery|trial)/i',
+        '/limited\s+time\s+offer/i',
+        '/order\s+now/i',
+        '/best\s+price\s+guaranteed/i',
+        '/\b(seo|backlink|link[\s\-]building)\s+service/i', // SEO spam
+        '/\b(instagram|twitter|facebook|youtube)\s+followers/i', // Follower spam
+        '/(grow|boost)\s+your\s+(followers|subscribers|traffic)/i',
+        '/increase\s+(website|web|blog)\s+traffic/i',
+        '/\bpassive\s+income\b/i',
     );
     
     foreach ($suspicious_patterns as $pattern) {
@@ -194,8 +215,25 @@ function is_comment_spam_enhanced($comment) {
     }
     
     // 5. Check for suspicious email patterns
-    if (preg_match('/^[a-z]+\d+@gmail\.com$/i', $comment->comment_author_email)) {
-        return true; // Pattern like "Reimann43744@gmail.com"
+    if (!empty($comment->comment_author_email)) {
+        // Pattern like "Reimann43744@gmail.com" or "User12345@yahoo.com"
+        if (preg_match('/^[a-zA-Z]+\d{4,}@(gmail|yahoo|hotmail|outlook)\.com$/i', $comment->comment_author_email)) {
+            return true;
+        }
+
+        // Disposable/temporary email domains
+        $disposable_domains = array(
+            'mailinator.com', 'guerrillamail.com', 'tempmail.com', 'throwam.com',
+            'yopmail.com', 'fakeinbox.com', 'trashmail.com', 'mailnull.com',
+            'sharklasers.com', 'guerrillamailblock.com', 'grr.la', 'guerrillamail.info',
+            'guerrillamail.biz', 'guerrillamail.de', 'guerrillamail.net', 'guerrillamail.org',
+            'spam4.me', 'dispostable.com', 'mailnesia.com', 'getnada.com', 'maildrop.cc',
+            'throwaway.email', 'tempr.email', 'discard.email', 'spamgourmet.com',
+        );
+        $email_domain = strtolower(substr(strrchr($comment->comment_author_email, '@'), 1));
+        if (in_array($email_domain, $disposable_domains)) {
+            return true;
+        }
     }
     
     // 6. UTM-specific checks
@@ -211,8 +249,22 @@ function is_comment_spam_enhanced($comment) {
     if (substr_count($comment->comment_content, 'http') > 2) {
         return true; // Multiple links usually spam
     }
+
+    // 8a. Check for any HTML tags (bots commonly inject HTML markup)
+    if (preg_match('/<[a-z][^>]*>/i', $comment->comment_content)) {
+        return true;
+    }
+
+    // 8b. Check for excessive uppercase (>60% of letters; common in shouting spam messages)
+    $letters = preg_replace('/[^a-zA-Z]/', '', $comment->comment_content);
+    if (strlen($letters) > 20) {
+        $uppercase_ratio = strlen(preg_replace('/[^A-Z]/', '', $letters)) / strlen($letters);
+        if ($uppercase_ratio > 0.6) {
+            return true;
+        }
+    }
     
-    // 8. Check for academic spam patterns
+    // 9. Check for academic spam patterns
     $academic_spam_patterns = array(
         '/essay.*writing.*service/i',
         '/assignment.*help.*online/i',
@@ -232,11 +284,18 @@ function is_comment_spam_enhanced($comment) {
 
 // Check if IP is from a suspicious range or known spam network
 function is_suspicious_ip($ip) {
-    // Known spam IP ranges (you can expand this list)
+    // Known spam IP ranges
     $spam_ip_ranges = array(
-        '104.128.67.', // The IP from your example
+        '104.128.67.', // Known spam range
         '185.220.',    // Common Tor exit nodes
         '192.42.116.', // Another common spam range
+        '162.247.74.', // Tor exit nodes
+        '199.249.230.', // Tor exit nodes
+        '198.96.155.',  // Known spam network
+        '176.10.99.',   // Tor exit
+        '77.247.181.',  // Tor exit nodes
+        '171.25.193.',  // Tor exit nodes
+        '109.70.100.',  // Spam network
     );
     
     foreach ($spam_ip_ranges as $range) {
@@ -261,7 +320,7 @@ function utm_sfs_check($email) {
     }
 
     $url = 'https://api.stopforumspam.org/api?email=' . urlencode($email) . '&json';
-    $response = wp_remote_get($url, array('timeout' => 5, 'user-agent' => 'UTM-AntiSpam/2.0'));
+    $response = wp_remote_get($url, array('timeout' => 5, 'user-agent' => 'UTM-AntiSpam/2.1'));
     if (is_wp_error($response)) {
         // On error, do not mark as spam by default; cache negative briefly to avoid repeated slow calls
         set_transient($key, false, HOUR_IN_SECONDS);
@@ -277,6 +336,41 @@ function utm_sfs_check($email) {
 
     // Cache result for 7 days
     set_transient($key, $appears ? true : false, DAY_IN_SECONDS * 7);
+    return $appears;
+}
+
+// StopForumSpam IP lookup with transient caching (3 days)
+function utm_sfs_check_ip($ip) {
+    if (empty($ip)) {
+        return false;
+    }
+
+    $key = 'utm_sfs_ip_' . md5($ip);
+    $cached = get_transient($key);
+    if ($cached !== false) {
+        return (bool) $cached;
+    }
+
+    $url = 'https://api.stopforumspam.org/api?ip=' . urlencode($ip) . '&json';
+    $response = wp_remote_get($url, array('timeout' => 5, 'user-agent' => 'UTM-AntiSpam/2.1'));
+    if (is_wp_error($response)) {
+        set_transient($key, false, HOUR_IN_SECONDS);
+        return false;
+    }
+
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body);
+    $appears = false;
+    if (!empty($data) && isset($data->ip) && !empty($data->ip->appears)) {
+        $appears = (bool) $data->ip->appears;
+        // Require at least 3 prior reports before flagging an IP to reduce false positives
+        if ($appears && isset($data->ip->frequency) && intval($data->ip->frequency) < 3) {
+            $appears = false;
+        }
+    }
+
+    // Cache result for 3 days (IPs change hands more often than emails)
+    set_transient($key, $appears ? true : false, DAY_IN_SECONDS * 3);
     return $appears;
 }
 
@@ -300,10 +394,26 @@ function filter_comment_before_save($commentdata) {
     // Prepare a small helper reason value
     $reason = '';
 
-    // 1. Check IP
+    // 1. Check IP against local known-spam ranges
     if (!empty($commentdata['comment_author_IP']) && is_suspicious_ip($commentdata['comment_author_IP'])) {
         $reason = 'suspicious_ip';
         $commentdata['comment_approved'] = 'spam';
+    }
+
+    // 1b. Check IP against StopForumSpam database
+    if (empty($reason) && !empty($commentdata['comment_author_IP'])) {
+        if (utm_sfs_check_ip($commentdata['comment_author_IP'])) {
+            $reason = 'sfs_ip_match';
+            $commentdata['comment_approved'] = 'spam';
+        }
+    }
+
+    // 1c. Check email against StopForumSpam database
+    if (empty($reason) && !empty($commentdata['comment_author_email'])) {
+        if (utm_sfs_check($commentdata['comment_author_email'])) {
+            $reason = 'sfs_email_match';
+            $commentdata['comment_approved'] = 'spam';
+        }
     }
 
     // 2. Check for spam content (heuristics)
@@ -325,6 +435,15 @@ function filter_comment_before_save($commentdata) {
         $limit = intval(get_option('utm_spam_rate_limit', 3));
         if ($recent_count !== null && $recent_count > $limit) {
             $reason = 'rate_limit';
+            $commentdata['comment_approved'] = 'spam';
+        }
+    }
+
+    // 4. Check user agent - empty or known bot signatures are suspicious
+    if (empty($reason)) {
+        $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? trim($_SERVER['HTTP_USER_AGENT']) : '';
+        if (empty($user_agent)) {
+            $reason = 'empty_user_agent';
             $commentdata['comment_approved'] = 'spam';
         }
     }
@@ -436,6 +555,59 @@ function smart_comment_filtering($commentdata) {
 }
 add_filter('preprocess_comment', 'smart_comment_filtering');
 
+// Honeypot: inject hidden fields into the comment form
+function utm_comment_honeypot_fields() {
+    $timestamp = time();
+    $token     = wp_hash('utm_comment_time_' . $timestamp);
+    echo '<p class="utm-honeypot" style="display:none !important;visibility:hidden !important;position:absolute !important;left:-9999px !important;">';
+    echo '<label for="utm_website_verify">Website (leave blank)</label>';
+    echo '<input type="text" name="utm_honeypot" id="utm_website_verify" value="" autocomplete="off" tabindex="-1" />';
+    echo '</p>';
+    echo '<input type="hidden" name="utm_comment_timestamp" value="' . esc_attr($timestamp) . '" />';
+    echo '<input type="hidden" name="utm_comment_token" value="' . esc_attr($token) . '" />';
+}
+add_action('comment_form', 'utm_comment_honeypot_fields');
+
+// Honeypot & timing validation — runs with highest priority (1) so bots are caught early
+function utm_validate_comment_honeypot($commentdata) {
+    // 1. Honeypot: bot filled in the hidden field
+    if (!empty($_POST['utm_honeypot'])) {
+        $commentdata['comment_approved'] = 'spam';
+        $key = 'utm_spam_reason_' . md5(
+            ($commentdata['comment_author_email'] ?? '') . '|' .
+            ($commentdata['comment_content'] ?? '')    . '|' .
+            ($commentdata['comment_author_IP'] ?? '')
+        );
+        set_transient($key, 'honeypot_triggered', MINUTE_IN_SECONDS * 10);
+        return $commentdata;
+    }
+
+    // 2. Timing: genuine users take at least 3 seconds to read & type a comment
+    if (isset($_POST['utm_comment_timestamp'], $_POST['utm_comment_token'])) {
+        $posted_time = intval($_POST['utm_comment_timestamp']);
+        $expected_token = wp_hash('utm_comment_time_' . $posted_time);
+        $submitted_token = sanitize_text_field(wp_unslash($_POST['utm_comment_token']));
+        // Validate the token to prevent replay/manipulation
+        if (hash_equals($expected_token, $submitted_token)) {
+            $elapsed = time() - $posted_time;
+            // Reject submissions faster than 3 seconds — typical bot behaviour
+            if ($elapsed < 3) {
+                $commentdata['comment_approved'] = 'spam';
+                $key = 'utm_spam_reason_' . md5(
+                    ($commentdata['comment_author_email'] ?? '') . '|' .
+                    ($commentdata['comment_content'] ?? '')    . '|' .
+                    ($commentdata['comment_author_IP'] ?? '')
+                );
+                set_transient($key, 'too_fast_submission', MINUTE_IN_SECONDS * 10);
+                return $commentdata;
+            }
+        }
+    }
+
+    return $commentdata;
+}
+add_filter('preprocess_comment', 'utm_validate_comment_honeypot', 1);
+
 // Smart email notifications - only for legitimate comments, rate-limited
 function smart_comment_notification($comment_id, $comment) {
     // Skip if comment is spam or pending
@@ -511,7 +683,28 @@ $spam_words = array(
     
     // Financial spam
     'instant loan', 'personal loan', 'credit repair', 'debt consolidation',
-    'payday loan', 'cash advance', 'loan approval', 'bad credit loan'
+    'payday loan', 'cash advance', 'loan approval', 'bad credit loan',
+
+    // SEO & digital marketing spam (common in blog comments)
+    'buy backlinks', 'link building service', 'seo service', 'rank your website',
+    'increase website traffic', 'boost your rankings', 'google first page',
+    'digital marketing service', 'social media marketing',
+
+    // Social media follower spam
+    'buy instagram followers', 'buy twitter followers', 'buy youtube subscribers',
+    'increase followers', 'grow your audience',
+
+    // Affiliate/MLM spam
+    'passive income', 'affiliate marketing program', 'referral bonus', 'downline',
+    'multi-level marketing', 'network marketing opportunity',
+
+    // Pharma spam
+    'buy cheap viagra', 'buy cialis', 'online pharmacy', 'prescription drugs online',
+    'cheap medication', 'pills without prescription',
+
+    // Crypto spam
+    'bitcoin investment', 'crypto profit', 'nft drop', 'token sale', 'ico investment',
+    'defi yield', 'airdrop crypto',
 );
 
 // UTM-specific content validation
@@ -683,7 +876,12 @@ function bulk_scan_existing_comments($batch_size = 100) {
             update_comment_meta($comment->comment_ID, '_bulk_spam_scanned', current_time('mysql'));
             
             // Check if it's spam
-            if (is_comment_spam_enhanced($comment) || is_suspicious_ip($comment->comment_author_IP)) {
+            if (
+                is_comment_spam_enhanced($comment) ||
+                is_suspicious_ip($comment->comment_author_IP) ||
+                (!empty($comment->comment_author_IP) && utm_sfs_check_ip($comment->comment_author_IP)) ||
+                (!empty($comment->comment_author_email) && utm_sfs_check($comment->comment_author_email))
+            ) {
                 wp_spam_comment($comment->comment_ID);
                 $stats['spam_found']++;
                 
@@ -876,7 +1074,12 @@ function scan_pending_comments_manual() {
     foreach ($pending_comments as $comment) {
         $stats['total_scanned']++;
         
-        if (is_comment_spam_enhanced($comment) || is_suspicious_ip($comment->comment_author_IP)) {
+        if (
+            is_comment_spam_enhanced($comment) ||
+            is_suspicious_ip($comment->comment_author_IP) ||
+            (!empty($comment->comment_author_IP) && utm_sfs_check_ip($comment->comment_author_IP)) ||
+            (!empty($comment->comment_author_email) && utm_sfs_check($comment->comment_author_email))
+        ) {
             wp_spam_comment($comment->comment_ID);
             $stats['spam_found']++;
             
@@ -1042,16 +1245,24 @@ function utm_antispam_admin_page() {
             <div class="postbox">
                 <div class="inside">
                     <ul style="list-style: none; padding: 0;">
-                        <li>✅ <strong>StopForumSpam API</strong> - External spam database checking</li>
+                        <li>✅ <strong>Honeypot Field</strong> - Hidden field traps bots that auto-fill forms</li>
+                        <li>✅ <strong>Form Timing Check</strong> - Rejects submissions faster than 3 seconds (bot behaviour)</li>
+                        <li>✅ <strong>StopForumSpam Email</strong> - Real-time email lookup against spam database</li>
+                        <li>✅ <strong>StopForumSpam IP</strong> - Real-time IP lookup against spam database</li>
                         <li>✅ <strong>UTM Academic Context</strong> - University-specific spam detection</li>
                         <li>✅ <strong>Gambling & Casino</strong> - Blocks gambling-related spam</li>
-                        <li>✅ <strong>IP-based Blocking</strong> - Known spam IP ranges</li>
-                        <li>✅ <strong>Rate Limiting</strong> - Prevents spam floods</li>
-                        <li>✅ <strong>Pattern Detection</strong> - Generic spam phrases</li>
-                        <li>✅ <strong>Multi-link Filter</strong> - Blocks multiple external links</li>
-                        <li>✅ <strong>Email Validation</strong> - Suspicious email patterns</li>
+                        <li>✅ <strong>SEO & Affiliate Spam</strong> - Blocks link-building and follower-selling spam</li>
+                        <li>✅ <strong>Disposable Email Blocking</strong> - Rejects known temp/throwaway email domains</li>
+                        <li>✅ <strong>HTML Injection Detection</strong> - Flags comments containing HTML markup</li>
+                        <li>✅ <strong>Excessive Uppercase Detection</strong> - Catches shouting/spam-style messages</li>
+                        <li>✅ <strong>IP-based Blocking</strong> - Known spam and Tor exit node IP ranges</li>
+                        <li>✅ <strong>Rate Limiting</strong> - Prevents spam floods per IP</li>
+                        <li>✅ <strong>Pattern Detection</strong> - Generic spam phrases and self-promotion</li>
+                        <li>✅ <strong>Multi-link Filter</strong> - Blocks comments with multiple external links</li>
+                        <li>✅ <strong>Email Validation</strong> - Suspicious randomised email patterns</li>
                         <li>✅ <strong>Academic Spam</strong> - Essay writing services, etc.</li>
                         <li>✅ <strong>Content Relevance</strong> - UTM-specific context checking</li>
+                        <li>✅ <strong>User Agent Check</strong> - Rejects comments with no browser UA</li>
                     </ul>
                 </div>
             </div>
