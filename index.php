@@ -64,6 +64,7 @@ function utm_get_all_module_slugs() {
         'dashboard',
         'analytics',
         'antispam',
+        'auto-update',
         'backup',
         'brokenlink',
         'bulk-add-user',
