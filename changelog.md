@@ -1,5 +1,31 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-04-09] - deployment status dashboard + version endpoint compatibility (v5.58)
+
+### Version bump
+
+- Version bump: 5.57 → 5.58
+
+### Problem
+- Needed a protected way for admins to identify which sites were still running an older plugin version.
+- The public heartbeat report only collected versions; it did not clearly mark outdated sites against a canonical latest version.
+- The newer REST version endpoint returned `version` but not the legacy `plugin_version` field expected by the existing report.
+
+### Solution
+- Upgraded `/sites/www/files/api/heartbeat.php` to compare every target against the canonical `www.utm.my` version and label sites as up to date or outdated.
+- Added fallback support for both `/wp-json/utm-webmaster/v1/version` and `/wp-json/utm/v1/version`.
+- Updated `/wp-json/utm-webmaster/v1/version` to return both `version` and `plugin_version` for compatibility.
+- Added a protected Deployment Status section to the plugin dashboard so admins can review the report using their existing WordPress login session.
+- Updated the repo instructions to describe the deployment report workflow.
+
+### Files Modified
+- `/NFS-WWW4/sites/www/files/api/heartbeat.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/version-endpoint.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/dashboard.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/.github/copilot-instructions.md`
+
 ## [2026-04-02] - merge email gate into SSO (v5.57)
 
 ### Version bump

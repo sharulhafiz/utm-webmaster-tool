@@ -445,6 +445,209 @@ function utm_dashboard_get_all_modules_flat() {
 }
 
 /**
+ * Fetch the deployment report used by the dashboard.
+ *
+ * @param bool $force_refresh Whether to bypass the API cache.
+ * @return array
+ */
+function utm_dashboard_get_deployment_report( $force_refresh = false ) {
+    $report_url = network_home_url( '/api/heartbeat.php?format=json' );
+
+    if ( $force_refresh ) {
+        $report_url = add_query_arg( 'refresh', '1', $report_url );
+    }
+
+    $response = wp_remote_get(
+        $report_url,
+        array(
+            'timeout'    => 15,
+            'redirection'=> 2,
+        )
+    );
+
+    if ( is_wp_error( $response ) ) {
+        return array(
+            'status'  => 'error',
+            'message' => $response->get_error_message(),
+        );
+    }
+
+    $body = wp_remote_retrieve_body( $response );
+    $data = json_decode( $body, true );
+
+    if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $data ) ) {
+        return array(
+            'status'  => 'error',
+            'message' => 'Deployment report returned invalid JSON.',
+        );
+    }
+
+    if ( isset( $data['latest_version'] ) && ! isset( $data['source_version'] ) ) {
+        $data['source_version'] = $data['latest_version'];
+    }
+
+    $data['status'] = 'success';
+
+    return $data;
+}
+
+/**
+ * Enqueue Tabler assets for the dashboard page.
+ *
+ * @return void
+ */
+function utm_dashboard_enqueue_tabler_assets() {
+    $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+
+    if ( 'utm-webmaster-dashboard' !== $page ) {
+        return;
+    }
+
+    wp_enqueue_style(
+        'tabler-core',
+        'https://cdn.jsdelivr.net/npm/@tabler/core@latest/dist/css/tabler.min.css',
+        array(),
+        null
+    );
+
+    wp_enqueue_script(
+        'tabler-core',
+        'https://cdn.jsdelivr.net/npm/@tabler/core@latest/dist/js/tabler.min.js',
+        array(),
+        null,
+        true
+    );
+}
+add_action( 'admin_enqueue_scripts', 'utm_dashboard_enqueue_tabler_assets' );
+add_action( 'network_admin_enqueue_scripts', 'utm_dashboard_enqueue_tabler_assets' );
+
+/**
+ * Render the deployment report section.
+ *
+ * @param array $report Deployment report payload.
+ * @return void
+ */
+function utm_dashboard_render_deployment_report( array $report ) {
+    $latest_version = isset( $report['source_version'] ) ? (string) $report['source_version'] : ( isset( $report['latest_version'] ) ? (string) $report['latest_version'] : 'unknown' );
+    $outdated_count = isset( $report['outdated_count'] ) ? (int) $report['outdated_count'] : 0;
+    $failed_count = isset( $report['failed_count'] ) ? (int) $report['failed_count'] : 0;
+    $up_to_date_count = isset( $report['up_to_date_count'] ) ? (int) $report['up_to_date_count'] : 0;
+    $total_count = isset( $report['total_count'] ) ? (int) $report['total_count'] : 0;
+    ?>
+    <div class="card" style="margin: 20px 0;">
+        <div class="card-header">
+            <h2 class="card-title">Deployment Status</h2>
+            <div class="card-actions">
+                <a class="btn btn-outline-primary btn-sm" href="<?php echo esc_url( add_query_arg( 'utm_refresh_deployment', '1', admin_url( 'admin.php?page=utm-webmaster-dashboard' ) ) ); ?>">Refresh</a>
+                <a class="btn btn-outline-secondary btn-sm" href="<?php echo esc_url( network_home_url( '/api/heartbeat.php?format=json' ) ); ?>" target="_blank" rel="noopener noreferrer">JSON</a>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="text-secondary mb-3">Remote sites are considered <strong>up to date</strong> only when their installed plugin version matches the source plugin version shown below.</p>
+
+            <div class="row row-cards mb-3">
+                <div class="col-sm-6 col-lg-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="subheader">Source plugin version</div>
+                            <div class="h1 mb-0"><?php echo esc_html( $latest_version ); ?></div>
+                            <?php if ( ! empty( $report['latest_source'] ) ) : ?>
+                                <div class="text-secondary"><?php echo esc_html( $report['latest_source'] ); ?></div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="subheader">Up to date</div>
+                            <div class="h1 mb-0 text-success"><?php echo esc_html( (string) $up_to_date_count ); ?></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="subheader">Outdated</div>
+                            <div class="h1 mb-0 text-danger"><?php echo esc_html( (string) $outdated_count ); ?></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="subheader">Unreachable</div>
+                            <div class="h1 mb-0 text-secondary"><?php echo esc_html( (string) $failed_count ); ?></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <?php if ( ! empty( $report['generated_at'] ) ) : ?>
+                <p><strong>Report generated:</strong> <?php echo esc_html( date_i18n( 'Y-m-d H:i:s', (int) $report['generated_at'] ) ); ?></p>
+            <?php endif; ?>
+
+            <table class="table table-vcenter table-striped card-table">
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        <th>Installed</th>
+                        <th>Status</th>
+                        <th>Source version</th>
+                        <th>Endpoint</th>
+                        <th>Checked</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if ( ! empty( $report['data'] ) && is_array( $report['data'] ) ) : ?>
+                        <?php foreach ( $report['data'] as $row ) : ?>
+                            <?php
+                            $row_status = isset( $row['status'] ) ? $row['status'] : 'unknown';
+                            $status_label = 'up_to_date' === $row_status ? 'Up to date' : ( 'outdated' === $row_status ? 'Outdated' : 'Unknown' );
+                            $status_class = 'up_to_date' === $row_status ? 'bg-success' : ( 'outdated' === $row_status ? 'bg-danger' : 'bg-secondary' );
+                            ?>
+                            <tr>
+                                <td><?php echo esc_html( $row['website'] ?? '' ); ?></td>
+                                <td><?php echo esc_html( $row['version'] ?? '' ); ?></td>
+                                <td><span class="badge <?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $status_label ); ?></span></td>
+                                <td><?php echo esc_html( $row['latest_version'] ?? $latest_version ); ?></td>
+                                <td><code><?php echo esc_html( $row['endpoint'] ?? 'unknown' ); ?></code></td>
+                                <td><?php echo esc_html( $row['date'] ?? 'unknown' ); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else : ?>
+                        <tr>
+                            <td colspan="6">No deployment data available yet.</td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+
+            <?php if ( ! empty( $report['outdated_websites'] ) ) : ?>
+                <div class="alert alert-danger mt-3">
+                    <strong>Outdated sites:</strong>
+                    <?php echo esc_html( implode( ', ', $report['outdated_websites'] ) ); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ( ! empty( $report['failed_websites'] ) ) : ?>
+                <div class="alert alert-warning mt-3">
+                    <strong>Unreachable sites:</strong>
+                    <?php
+                    $failed_labels = array();
+                    foreach ( $report['failed_websites'] as $website => $error ) {
+                        $failed_labels[] = $website . ' - ' . $error;
+                    }
+                    echo esc_html( implode( '; ', $failed_labels ) );
+                    ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php
+}
+
+/**
  * Handle module activate/deactivate requests from dashboard.
  *
  * @return void
@@ -510,6 +713,13 @@ function utm_dashboard_render_page() {
             }
         }
     }
+
+    $deployment_report = null;
+    if ( ! empty( $_GET['utm_refresh_deployment'] ) ) {
+        $deployment_report = utm_dashboard_get_deployment_report( true );
+    } else {
+        $deployment_report = utm_dashboard_get_deployment_report();
+    }
     
     ?>
     <div class="wrap">
@@ -536,6 +746,16 @@ function utm_dashboard_render_page() {
             <p><strong>Author:</strong> UTM Webmaster Team</p>
             <p>This plugin provides essential tools and optional features for UTM websites.</p>
         </div>
+
+        <?php if ( is_array( $deployment_report ) && ( empty( $deployment_report['status'] ) || 'success' === $deployment_report['status'] ) ) : ?>
+            <?php utm_dashboard_render_deployment_report( $deployment_report ); ?>
+        <?php else : ?>
+            <div style="background: #fff; border: 1px solid #ccd0d4; padding: 20px; margin: 20px 0; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h2>Deployment Status</h2>
+                <p>Unable to load the deployment report right now.</p>
+                <p><strong>Reason:</strong> <?php echo esc_html( is_array( $deployment_report ) && ! empty( $deployment_report['message'] ) ? $deployment_report['message'] : 'Unknown error' ); ?></p>
+            </div>
+        <?php endif; ?>
 
         <!-- Must Use Modules -->
         <div style="background: #fff; border: 1px solid #ccd0d4; padding: 20px; margin: 20px 0; box-shadow: 0 1px 1px rgba(0,0,0,.04);">

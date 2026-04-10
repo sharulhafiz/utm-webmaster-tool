@@ -6,7 +6,7 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
- Version: 5.57
+ Version: 5.58
  */
 
 // Exit if accessed directly for security.
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define basic constants. These are fine as they are static.
- define( 'UTM_PLUGIN_VERSION', '5.57' );
+ define( 'UTM_PLUGIN_VERSION', '5.58' );
 define( 'UTM_WEBMASTER_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'UTM_WEBMASTER_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -111,6 +111,7 @@ function utm_get_all_module_slugs() {
         'disable-rss-feeds',
         'conditional-redirects',
         'divi-redis-cache',
+        'admission.utm.my',
         'admission.utm.my-programmes-filter',
         'admission.utm.my-programmes-import',
     );
@@ -307,6 +308,10 @@ function utm_should_load_module( $module ) {
         return 'support.utm.my' === $request_host;
     }
 
+    if ( 'admission.utm.my' === $module ) {
+        return 'admission.utm.my' === $request_host;
+    }
+
     if ( 'admission.utm.my-programmes-filter' === $module ) {
         return 'admission.utm.my' === $request_host;
     }
@@ -340,8 +345,12 @@ function utm_load_modules() {
             continue;
         }
 
+        $bootstrap_file = $modules_dir . $module . '/bootstrap.php';
         $file = $modules_dir . $module . '.php';
-        if ( file_exists( $file ) ) {
+
+        if ( file_exists( $bootstrap_file ) ) {
+            require_once $bootstrap_file;
+        } elseif ( file_exists( $file ) ) {
             require_once $file;
         }
     }

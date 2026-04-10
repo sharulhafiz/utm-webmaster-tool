@@ -37,6 +37,9 @@ This is a **PHP WordPress plugin** - there is NO npm, composer, or traditional b
 1. This plugin is designed to be uploaded to a WordPress installation
 2. Activate at the **Network Admin** level in WordPress Multisite
 3. Configuration happens through WordPress admin UI, not config files
+4. Use the protected **Deployment Status** dashboard in WordPress admin to verify rollout state after deployment
+5. Treat `/sites/www/files/api/heartbeat.php` as the reporting backend and keep `/wp-json/utm-webmaster/v1/version` as the canonical version source
+6. When adding new deployment steps or target groups, update the deployment report workflow first, then the target inventory
 
 ### Testing
 The `/tests` directory contains PHP validation scripts for specific features:
@@ -92,7 +95,8 @@ Not all modules are used by all sites. **Validate on the actual target site(s)**
    - relevant wp-admin screen,
    - REST/AJAX endpoints touched by the change,
    - role-based behavior (if auth logic changed).
-6. Watch logs (nginx + PHP + WordPress debug) for immediate regressions.
+6. For deployment-report changes, verify the dashboard is only visible to logged-in admins and does not require a separate login page; it should rely on the existing WordPress session / UTM SSO cookie.
+7. Watch logs (nginx + PHP + WordPress debug) for immediate regressions.
 
 #### Cache/opcache reset ladder (least disruptive first)
 1. Targeted app/object cache clear

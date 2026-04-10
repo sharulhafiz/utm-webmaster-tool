@@ -15,6 +15,7 @@ function utm_webmaster_rest_version() {
         'ok'             => true,
         'plugin'         => 'utm-webmaster-tool',
         'version'        => defined( 'UTM_PLUGIN_VERSION' ) ? UTM_PLUGIN_VERSION : null,
+        'plugin_version'  => defined( 'UTM_PLUGIN_VERSION' ) ? UTM_PLUGIN_VERSION : null,
         'site_url'       => get_site_url(),
         'generated_at'   => current_time( 'mysql' ),
     );
