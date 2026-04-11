@@ -1,5 +1,42 @@
 # Changelog - UTM Webmaster Tool
 
+## [2026-04-11] - sustainable docs sync module foundation (v5.59)
+
+### Version bump
+
+- Version bump: 5.58 → 5.59
+
+### Problem
+- `sustainable.utm.my` needed a host-scoped integration path to sync Google Docs into WordPress pages with deterministic Google Doc ID mapping.
+- Existing script configuration kept credentials inline, which is unsafe for long-term maintenance.
+- There was no dedicated module boundary for content transforms (bracketed Google Drive PDF embeds) and optional menu hierarchy syncing.
+
+### Solution
+- Added new host-gated module scaffold at `modules/sustainable.utm.my/` and registered it in plugin bootstrap.
+- Implemented REST endpoints under `utm-sustainable/v1` for secure lookup and sync (`edit_pages` capability required).
+- Added page upsert service with mapping key `_utm_google_doc_id` and optional menu synchronization from `folder_path`.
+- Added content transform helper to convert bracketed Google Drive links into preview iframe embeds.
+- Updated `modules/gdocsToWP.js` to use Apps Script Script Properties for secrets/config and to use the new lookup namespace.
+- Added module-level runbook documentation.
+
+### Files Modified
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/index.php`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/changelog.md`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/gdocsToWP.js`
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/bootstrap.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/context.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/content-transform.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/menu-service.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/sync-service.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/rest.php` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/README.md` (new)
+- `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/plan.md`
+
+### Validation
+- In-container PHP lint passed for all modified PHP files in `www-php-public`.
+- VS Code diagnostics reported no file-level errors on changed files.
+- External endpoint smoke check for `sustainable.utm.my` namespace could not be confirmed from this host at implementation time.
+
 ## [2026-04-09] - deployment status dashboard + version endpoint compatibility (v5.58)
 
 ### Version bump

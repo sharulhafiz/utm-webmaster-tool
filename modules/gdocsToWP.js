@@ -3,18 +3,22 @@
  * then pushes their content to a WordPress site as custom posts.
  */
 
-// === 1. UPDATE THESE VALUES ===
-const FOLDER_ID = '14npnQkpgt7AbfB6FdvtW1gPs7MoWQysQ';
-const WORDPRESS_URL = 'https://sustainable.utm.my'; // NO trailing slash
-const WP_USERNAME = 'adminsustainability'; // Your WordPress username
-const WP_APPLICATION_PASSWORD = 'Gbj2 Vohg Ov77 lsXp OcNC itQ9'; // Your generated application password
-const WP_POST_TYPE = 'the'; // The custom post type you created
+// === 1. REQUIRED SCRIPT PROPERTIES ===
+// Set these in Apps Script: FOLDER_ID, WORDPRESS_URL, WP_USERNAME, WP_APP_PASSWORD, WP_POST_TYPE
+const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
+const FOLDER_ID = SCRIPT_PROPERTIES.getProperty('FOLDER_ID');
+const WORDPRESS_URL = SCRIPT_PROPERTIES.getProperty('WORDPRESS_URL'); // NO trailing slash
+const WP_USERNAME = SCRIPT_PROPERTIES.getProperty('WP_USERNAME');
+const WP_APPLICATION_PASSWORD = SCRIPT_PROPERTIES.getProperty('WP_APP_PASSWORD');
+const WP_POST_TYPE = SCRIPT_PROPERTIES.getProperty('WP_POST_TYPE') || 'page';
 
 /**
  * Main function to orchestrate the entire process.
  */
 function pushDocsToWordPress() {
   Logger.log('--- Starting: Pushing Google Docs to WordPress ---');
+
+  validateScriptProperties();
 
   try {
     // 1. Get a flat list of all Google Docs in the folder tree
@@ -78,7 +82,7 @@ function createOrUpdateWordPressPost(postData) {
 
   // --- 1) Preferred: Lookup by Google Doc ID via custom endpoint ---
   try {
-    const lookupUrl = `${WORDPRESS_URL}/wp-json/utm/v1/post-by-google-id?google_id=${encodeURIComponent(postData.google_id)}`;
+    const lookupUrl = `${WORDPRESS_URL}/wp-json/utm-sustainable/v1/post-by-google-id?google_id=${encodeURIComponent(postData.google_id)}`;
     const lookupResp = UrlFetchApp.fetch(lookupUrl, { headers: headers, muteHttpExceptions: true });
     const lookupCode = lookupResp.getResponseCode();
     if (lookupCode === 200) {
@@ -349,4 +353,13 @@ function wpSlugify(title) {
 
 function isValidDate(d) {
   return d instanceof Date && !isNaN(d);
+}
+
+function validateScriptProperties() {
+  const required = ['FOLDER_ID', 'WORDPRESS_URL', 'WP_USERNAME', 'WP_APP_PASSWORD'];
+  const missing = required.filter(key => !SCRIPT_PROPERTIES.getProperty(key));
+
+  if (missing.length > 0) {
+    throw new Error('Missing required Script Properties: ' + missing.join(', '));
+  }
 }
