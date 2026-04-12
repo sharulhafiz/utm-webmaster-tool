@@ -41,6 +41,16 @@ It is transformed to a Google Drive preview iframe embed.
 
 When `folder_path` is provided, the module ensures menu hierarchy under `Main Menu` and places the page under the final folder node.
 
+## Page hierarchy syncing
+
+When `folder_path` is provided, the module also:
+
+- creates/reuses folder pages as actual WordPress pages,
+- sets `post_parent` for each synced doc page to the last folder page in the path,
+- keeps a deterministic folder key in `_utm_sustainable_folder_key`.
+
+This means you do **not** need to manually create parent pages first.
+
 ## Apps Script authentication model
 
 Use Script Properties (not hardcoded secrets):
@@ -51,6 +61,15 @@ Use Script Properties (not hardcoded secrets):
 - `WP_APP_PASSWORD`
 - `WP_POST_TYPE` (optional; defaults to `page`)
 
+Set these in the Google Apps Script project settings, not in the `.js` file:
+
+1. Open the Apps Script project.
+2. Go to **Project Settings**.
+3. Add the keys under **Script properties**.
+4. Save, then run the sync function again.
+
+The repository copy of `/NFS-WWW4/wp-common-assets/plugins/utm-webmaster-tool/modules/sustainable.utm.my/Code.js` reads these properties at runtime.
+
 Required Apps Script scopes:
 
 - `https://www.googleapis.com/auth/drive.readonly`
@@ -58,6 +77,15 @@ Required Apps Script scopes:
 - `https://www.googleapis.com/auth/script.external_request`
 
 Google Docs export uses `ScriptApp.getOAuthToken()`.
+
+## Deployment steps
+1. Use Google Clasp to push `Code.js` to the Apps Script project.
+
+## Main Apps Script entrypoint
+
+Run `pushDocsToWordPress` to execute the full sync.
+
+A compatibility alias `pushDocsToWordpress` (lowercase `p`) is also available.
 
 ## Rollback
 

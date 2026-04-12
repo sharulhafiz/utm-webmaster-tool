@@ -7,7 +7,7 @@
 const DEFAULT_WORDPRESS_URL = 'https://sustainable.utm.my';
 const DEFAULT_WP_POST_TYPE = 'page';
 const SUSTAINABLE_SYNC_PATH = '/wp-json/utm-sustainable/v1/sync-page';
-const SUSTAINABLE_LOOKUP_PATH = '/wp-json/utm-sustainable/v1/post-by-google-id';
+const SYNC_STATE_PROPERTY_KEY = 'UTM_GDOC_LAST_PUSH_MAP';
 
 function loadSyncSettings() {
   const scriptProperties = PropertiesService.getScriptProperties().getProperties();
@@ -40,45 +40,100 @@ function normalizeWordPressUrl(url) {
 
 /**
  * Main function to orchestrate the entire process.
+ *
+ * @param {Object=} options Optional runtime options.
+ * @param {boolean=} options.force When true, pushes all docs regardless of timestamp.
  */
-function pushDocsToWordPress() {
+function pushDocsToWordPress(options) {
+  const runOptions = options || {};
+  const forceSync = Boolean(runOptions.force);
+
   Logger.log('--- Starting: Pushing Google Docs to WordPress ---');
 
   try {
     const settings = loadSyncSettings();
+    const syncState = loadLastPushState();
+    const stats = {
+      totalFiles: 0,
+      nonDocsSkipped: 0,
+      unchangedSkipped: 0,
+      attempted: 0,
+      success: 0,
+      failed: 0
+    };
 
     // 1. Get a flat list of all Google Docs in the folder tree
     const allFiles = getAllFilesRecursive(settings.folderId);
+    stats.totalFiles = allFiles.length;
     Logger.log(`Found ${allFiles.length} file(s) to process.`);
+    Logger.log(`Incremental mode: ${forceSync ? 'FORCE (all files)' : 'ON (skip unchanged)'}`);
 
     // 2. Loop through each file and push it to WordPress
     allFiles.forEach(file => {
-      if (file.mimeType === MimeType.GOOGLE_DOCS) {
+      try {
+        if (file.mimeType !== MimeType.GOOGLE_DOCS) {
+          stats.nonDocsSkipped += 1;
+          Logger.log(`Skipping non-Google-Doc file: "${file.name}" (${file.mimeType})`);
+          return;
+        }
+
+        const lastModifiedTime = DriveApp.getFileById(file.id).getLastUpdated();
+        const lastModifiedIso = lastModifiedTime.toISOString();
+        const lastPushedIso = syncState[file.id] || '';
+
+        if (!forceSync && lastPushedIso === lastModifiedIso) {
+          stats.unchangedSkipped += 1;
+          Logger.log(`Skipping unchanged file: "${file.name}" (ID: ${file.id})`);
+          return;
+        }
+
         Logger.log(`Processing: "${file.name}" (ID: ${file.id})`);
+        stats.attempted += 1;
 
         // 3. Fetch the content of the Google Doc as HTML
         const htmlContent = getGoogleDocAsHTML(file.id);
         if (!htmlContent) {
+          stats.failed += 1;
           Logger.log(`...Skipped: Could not fetch content for "${file.name}".`);
-          return; // continue to next file
+          return;
         }
 
         // 3.5 Parse HTML Content
         const parsedContent = parseGoogleDocHtml(htmlContent);
-        const lastModifiedTime = DriveApp.getFileById(file.id).getLastUpdated();
-        
+
         // 4. Send the data to WordPress to create or update the post
-        createOrUpdateWordPressPost({
+        const result = createOrUpdateWordPressPost({
           google_id: file.id,
           title: file.name,
           content: parsedContent,
           status: 'publish',
-          google_modified: lastModifiedTime.toISOString(),
+          google_modified: lastModifiedIso,
           folder_path: file.folder_path || []
         });
+
+        if (result && result.ok) {
+          syncState[file.id] = lastModifiedIso;
+          stats.success += 1;
+        } else {
+          stats.failed += 1;
+        }
+      } catch (fileError) {
+        stats.failed += 1;
+        Logger.log(`...Error while processing "${file.name}" (${file.id}): ${fileError.toString()}`);
       }
+
       Utilities.sleep(3000);
     });
+
+    saveLastPushState(syncState);
+
+    Logger.log('--- Sync summary ---');
+    Logger.log(`Total discovered: ${stats.totalFiles}`);
+    Logger.log(`Skipped non-doc: ${stats.nonDocsSkipped}`);
+    Logger.log(`Skipped unchanged: ${stats.unchangedSkipped}`);
+    Logger.log(`Attempted pushes: ${stats.attempted}`);
+    Logger.log(`Successful pushes: ${stats.success}`);
+    Logger.log(`Failed pushes: ${stats.failed}`);
 
     Logger.log('--- Finished: All files processed. ---');
 
@@ -112,23 +167,6 @@ function createOrUpdateWordPressPost(postData) {
 
   Logger.log(`...Syncing Google Doc ${postData.google_id} to ${restApiUrl}`);
 
-  const lookupUrl = `${settings.wordpressUrl}${SUSTAINABLE_LOOKUP_PATH}?google_id=${encodeURIComponent(postData.google_id)}`;
-  const lookupResponse = UrlFetchApp.fetch(lookupUrl, {
-    headers: headers,
-    muteHttpExceptions: true
-  });
-
-  if (lookupResponse.getResponseCode() === 200) {
-    try {
-      const existing = JSON.parse(lookupResponse.getContentText());
-      if (existing && existing.id) {
-        Logger.log(`...Existing page found by google_id: ${existing.id}`);
-      }
-    } catch (lookupError) {
-      Logger.log(`...Lookup response could not be parsed: ${lookupError.toString()}`);
-    }
-  }
-
   const response = UrlFetchApp.fetch(restApiUrl, {
     method: 'post',
     headers: headers,
@@ -144,13 +182,53 @@ function createOrUpdateWordPressPost(postData) {
     try {
       const result = JSON.parse(responseBody);
       Logger.log(`...Success! WordPress page ID: ${result.post_id || result.id || 'unknown'}`);
+      return {
+        ok: true,
+        postId: result.post_id || result.id || null
+      };
     } catch (parseError) {
       Logger.log('...Success, but response body could not be parsed as JSON.');
+      return {
+        ok: true,
+        postId: null
+      };
     }
   } else {
     Logger.log(`...Error communicating with WordPress. Response Code: ${responseCode}`);
     Logger.log(`...Response Body: ${responseBody}`);
+    throw new Error(`WordPress sync failed (${responseCode}) for doc ${postData.google_id}`);
   }
+}
+
+/**
+ * Load persisted sync state map from Script Properties.
+ *
+ * @return {Object<string, string>}
+ */
+function loadLastPushState() {
+  const raw = PropertiesService.getScriptProperties().getProperty(SYNC_STATE_PROPERTY_KEY);
+
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    Logger.log(`Invalid sync state JSON. Resetting state. Error: ${error.toString()}`);
+    return {};
+  }
+}
+
+/**
+ * Persist sync state map into Script Properties.
+ *
+ * @param {Object<string, string>} syncState Sync state map.
+ */
+function saveLastPushState(syncState) {
+  const safeState = syncState && typeof syncState === 'object' ? syncState : {};
+  PropertiesService.getScriptProperties().setProperty(SYNC_STATE_PROPERTY_KEY, JSON.stringify(safeState));
 }
 
 
@@ -187,7 +265,7 @@ function getGoogleDocAsHTML(docId) {
 function getAllFilesRecursive(folderId) {
   const rootFolder = DriveApp.getFolderById(folderId);
   let fileList = [];
-  recursiveFileLister(rootFolder, fileList, []);
+  recursiveFileLister(rootFolder, fileList, [rootFolder.getName()]);
   return fileList;
 }
 
@@ -228,28 +306,60 @@ function recursiveFileLister(folder, fileList, pathSegments) {
 function parseGoogleDocHtml(html) {
   if (!html) return '';
 
-  // Remove <head> section
-  html = html.replace(/<head>[\s\S]*?<\/head>/gi, '');
+  // Preserve Google Docs CSS so class-based styling remains intact.
+  const styleBlocks = (html.match(/<style[\s\S]*?<\/style>/gi) || []).join('\n');
 
-  // Remove <html> and <body> tags, preserve content
-  html = html.replace(/<\/?html[^>]*>/gi, '');
-  html = html.replace(/<\/?body[^>]*>/gi, '');
+  // Keep only body HTML content if present.
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  let content = bodyMatch ? bodyMatch[1] : html;
 
-  // Remove only Google's tracking id/class attributes
-  html = html.replace(/ (id|class)="c\d+"/gi, '');
+  // Remove outer wrappers/doctype if still present.
+  content = content.replace(/<!doctype[^>]*>/gi, '');
+  content = content.replace(/<\/?html[^>]*>/gi, '');
+  content = content.replace(/<\/?body[^>]*>/gi, '');
 
-  // Add lazy loading and class to images
-  html = html.replace(/<img([^>]*?)>/gi, '<img$1 loading="lazy" class="google-doc-image">');
+  // Normalize malformed inline base64 image src values.
+  // Some payloads arrive as src="image/png;base64,..." instead of data:image/... .
+  content = content.replace(/src=(['"])\s*(image\/[a-zA-Z0-9.+-]+;base64,[^'"\s>]+)\1/gi, 'src=$1data:$2$1');
 
-  // Remove empty <span> tags
-  html = html.replace(/<span[^>]*>\s*<\/span>/gi, '');
+  // Add lazy loading while preserving existing attributes and classes.
+  content = content.replace(/<img\b([^>]*?)>/gi, function(match, attrs) {
+    let updatedAttrs = attrs || '';
 
-  // Optionally add your own classes to tables/lists
-  html = html.replace(/<table/gi, '<table class="google-doc-table"');
-  html = html.replace(/<ul/gi, '<ul class="google-doc-list"');
-  html = html.replace(/<ol/gi, '<ol class="google-doc-list"');
+    if (!/\bloading\s*=\s*['"]/i.test(updatedAttrs)) {
+      updatedAttrs += ' loading="lazy"';
+    }
 
-  // DO NOT strip or filter style attributes—preserve all for maximum fidelity
-  return html;
+    if (/\bclass\s*=\s*['"]/i.test(updatedAttrs)) {
+      updatedAttrs = updatedAttrs.replace(/\bclass\s*=\s*(['"])(.*?)\1/i, function(classMatch, quote, classValue) {
+        if (/\bgoogle-doc-image\b/i.test(classValue)) {
+          return classMatch;
+        }
+
+        return `class=${quote}${classValue} google-doc-image${quote}`;
+      });
+    } else {
+      updatedAttrs += ' class="google-doc-image"';
+    }
+
+    return `<img${updatedAttrs}>`;
+  });
+
+  return styleBlocks ? `${styleBlocks}\n${content}` : content;
+}
+
+/**
+ * Backward-compatible alias in case an Apps Script trigger still points
+ * to the previous function name casing.
+ */
+function pushDocsToWordpress() {
+  return pushDocsToWordPress();
+}
+
+/**
+ * Force a full push regardless of last modified tracking.
+ */
+function pushDocsToWordPressForce() {
+  return pushDocsToWordPress({ force: true });
 }
 
