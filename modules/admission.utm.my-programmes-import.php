@@ -107,18 +107,22 @@ function utm_admission_programmes_import_alias_map() {
  * @return array
  */
 function utm_admission_programmes_import_parse_csv( $csv_body ) {
-    $rows = preg_split( '/\r\n|\n|\r/', (string) $csv_body );
-    if ( empty( $rows ) ) {
+    $handle = fopen( 'php://temp', 'r+' );
+    if ( false === $handle ) {
         return array();
     }
 
-    $header_row = str_getcsv( (string) array_shift( $rows ) );
+    fwrite( $handle, (string) $csv_body );
+    rewind( $handle );
+
+    $header_row = fgetcsv( $handle );
     if ( empty( $header_row ) ) {
+        fclose( $handle );
         return array();
     }
 
     if ( isset( $header_row[0] ) ) {
-        $header_row[0] = preg_replace( '/^\xEF\xBB\xBF/', '', (string) $header_row[0] );
+        $header_row[0] = preg_replace( '/^\\xEF\\xBB\\xBF/', '', (string) $header_row[0] );
     }
 
     $normalized_headers = array();
@@ -128,16 +132,8 @@ function utm_admission_programmes_import_parse_csv( $csv_body ) {
     }
 
     $parsed = array();
-    foreach ( $rows as $line ) {
-        if ( '' === trim( (string) $line ) ) {
-            continue;
-        }
 
-        $values = str_getcsv( (string) $line );
-        if ( empty( $values ) ) {
-            continue;
-        }
-
+    while ( false !== ( $values = fgetcsv( $handle ) ) ) {
         if ( count( $values ) < count( $normalized_headers ) ) {
             $values = array_pad( $values, count( $normalized_headers ), '' );
         }
@@ -147,18 +143,12 @@ function utm_admission_programmes_import_parse_csv( $csv_body ) {
             $item[ $header_key ] = isset( $values[ $index ] ) ? trim( (string) $values[ $index ] ) : '';
         }
 
-        $is_empty = true;
-        foreach ( $item as $field_value ) {
-            if ( '' !== (string) $field_value ) {
-                $is_empty = false;
-                break;
-            }
-        }
-
-        if ( ! $is_empty ) {
+        if ( array_filter( $item, 'strlen' ) ) {
             $parsed[] = $item;
         }
     }
+
+    fclose( $handle );
 
     return $parsed;
 }
@@ -347,6 +337,27 @@ function utm_admission_programmes_import_set_level_terms( $post_id, $default_lev
 }
 
 /**
+ * Normalize/validate offered_to value.
+ *
+ * Only accepts known good values to prevent import data issues
+ * from polluting the filter and Apply Now logic.
+ *
+ * @param string $value Raw offered_to value.
+ * @return string Valid value or empty string.
+ */
+function utm_admission_programmes_import_normalize_offered_to( $value ) {
+    $value = trim( preg_replace( '/\s+/', ' ', (string) $value ) );
+
+    $allowed = array(
+        'Malaysian',
+        'International',
+        'Malaysian and International',
+    );
+
+    return in_array( $value, $allowed, true ) ? $value : '';
+}
+
+/**
  * Upsert one row into programmes CPT.
  *
  * @param array  $row    Parsed row.
@@ -415,6 +426,11 @@ function utm_admission_programmes_import_upsert_row( $row, $source, $config ) {
         $meta_key = utm_admission_programmes_import_resolve_meta_key( $raw_key );
         if ( '' === $meta_key ) {
             continue;
+        }
+
+        // Validate offered_to — reject anything that's not Malaysian/International.
+        if ( 'offered_to' === $meta_key ) {
+            $value = utm_admission_programmes_import_normalize_offered_to( $value );
         }
 
         update_post_meta( $post_id, $meta_key, (string) $value );
