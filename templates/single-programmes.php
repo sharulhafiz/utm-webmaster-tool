@@ -59,6 +59,7 @@ $fields = array(
     'colour_blind_test_cbt' => get_post_meta( $post_id, 'colour_blind_test_cbt', true ),
     'category_malaysian'    => get_post_meta( $post_id, 'category_malaysian', true ),
     'sept_intake_malaysian_upu' => get_post_meta( $post_id, 'sept_intake_malaysian_upu', true ),
+    'offered_to'                => get_post_meta( $post_id, 'offered_to', true ),
     'offered_to_intake_malaysian'    => get_post_meta( $post_id, 'offered_to_september_2026_intake_malaysian', true ),
     'offered_to_intake_international' => get_post_meta( $post_id, 'offered_to_september_2026_intake_international', true ),
 );
