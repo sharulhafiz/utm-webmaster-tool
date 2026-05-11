@@ -862,6 +862,51 @@ function utm_admission_programmes_import_auto_fix_level_terms() {
 }
 
 /**
+ * REST callback: cleanup bad offered_to meta values + clear transients.
+ *
+ * Removes any offered_to meta that isn't one of the allowed values,
+ * then clears the filter transient so the next page load picks up fresh data.
+ *
+ * @return array
+ */
+function utm_admission_programmes_import_rest_cleanup_offered_to() {
+    global $wpdb;
+
+    $allowed = array( 'Malaysian', 'International', 'Malaysian and International' );
+    $allowed_esc = array();
+    foreach ( $allowed as $v ) {
+        $allowed_esc[] = $wpdb->_real_escape( $v );
+    }
+
+    // Delete invalid offered_to values
+    $deleted = $wpdb->query(
+        "DELETE FROM {$wpdb->postmeta}
+         WHERE meta_key = 'offered_to'
+           AND meta_value <> ''
+           AND meta_value NOT IN ('" . implode( "','", $allowed_esc ) . "')
+           AND post_id IN (
+               SELECT ID FROM {$wpdb->posts}
+               WHERE post_type = '" . UTM_ADM_PROGRAMMES_POST_TYPE . "'
+               AND post_status = 'publish'
+           )"
+    );
+
+    // Clear filter transients
+    $transient_cleared = $wpdb->query(
+        "DELETE FROM {$wpdb->options}
+         WHERE option_name LIKE '\_transient\_utm\_adm\_meta\_opts\_%'
+            OR option_name LIKE '\_transient\_timeout\_utm\_adm\_meta\_opts\_%'"
+    );
+
+    return array(
+        'ok'                => true,
+        'invalid_removed'   => (int) $deleted,
+        'transients_cleared' => (int) $transient_cleared,
+        'message'           => 'Cleanup complete. Run /admission-programmes-import/run to re-import.',
+    );
+}
+
+/**
  * Register REST routes for remote import operations.
  *
  * @return void
@@ -894,6 +939,16 @@ function utm_admission_programmes_import_register_rest_routes() {
             'methods'             => WP_REST_Server::CREATABLE,
             'permission_callback' => 'utm_admission_programmes_import_rest_permission',
             'callback'            => 'utm_admission_programmes_import_rest_fix_level_terms',
+        )
+    );
+
+    register_rest_route(
+        UTM_ADM_PROGRAMMES_REST_NAMESPACE,
+        '/admission-programmes-import/cleanup-offered-to',
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'permission_callback' => 'utm_admission_programmes_import_rest_permission',
+            'callback'            => 'utm_admission_programmes_import_rest_cleanup_offered_to',
         )
     );
 }
