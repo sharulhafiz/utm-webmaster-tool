@@ -548,6 +548,11 @@ function utm_admission_programmes_import_run( $trigger = 'manual' ) {
     utm_admission_programmes_import_save_log( $report );
     delete_transient( $lock_key );
 
+    // Auto-fix duplicated level taxonomy terms after a successful import
+    if ( $report['created'] + $report['updated'] > 0 ) {
+        utm_admission_programmes_import_auto_fix_level_terms();
+    }
+
     return array(
         'ok'     => true,
         'report' => $report,
@@ -667,6 +672,95 @@ function utm_admission_programmes_import_rest_run() {
 }
 
 /**
+ * REST callback: fix duplicate level taxonomy terms on programmes.
+ *
+ * Some programmes have BOTH "Postgraduate Coursework" and "Postgraduate Research"
+ * terms assigned. This endpoint removes the incorrect one based on import source.
+ *
+ * @return array
+ */
+function utm_admission_programmes_import_rest_fix_level_terms() {
+    $taxonomy = 'level';
+    $source_meta_key = '_utm_adm_programmes_source';
+    $source_level_map = array(
+        'pg_research'   => 'Postgraduate Research',
+        'pg_coursework' => 'Postgraduate Coursework',
+        'ug'            => 'Undergraduate',
+    );
+
+    $posts = get_posts( array(
+        'post_type'      => 'programmes',
+        'post_status'    => 'any',
+        'posts_per_page' => 500,
+        'fields'         => 'ids',
+    ) );
+
+    $fixed = 0;
+    $errors = 0;
+    $details = array();
+
+    foreach ( $posts as $post_id ) {
+        $terms = get_the_terms( $post_id, $taxonomy );
+        if ( is_wp_error( $terms ) || empty( $terms ) || count( $terms ) < 2 ) {
+            continue;
+        }
+
+        $source = get_post_meta( $post_id, $source_meta_key, true );
+        $expected_level = isset( $source_level_map[ $source ] ) ? $source_level_map[ $source ] : '';
+
+        if ( '' === $expected_level ) {
+            $errors++;
+            $details[] = "Post $post_id: unknown source '$source'";
+            continue;
+        }
+
+        $keep_id = null;
+        $remove_ids = array();
+        foreach ( $terms as $term ) {
+            if ( $term->name === $expected_level ) {
+                $keep_id = $term->term_id;
+            } else {
+                $remove_ids[] = $term->term_id;
+            }
+        }
+
+        if ( empty( $remove_ids ) ) {
+            continue;
+        }
+
+        if ( null === $keep_id ) {
+            $keep_id = $terms[0]->term_id;
+            $remove_ids = array();
+            foreach ( $terms as $i => $term ) {
+                if ( $i > 0 ) $remove_ids[] = $term->term_id;
+            }
+        }
+
+        foreach ( $remove_ids as $remove_id ) {
+            wp_remove_object_terms( $post_id, $remove_id, $taxonomy );
+        }
+
+        $fixed++;
+        $removed_names = array();
+        foreach ( $remove_ids as $rid ) {
+            foreach ( $terms as $t ) {
+                if ( $t->term_id === $rid ) {
+                    $removed_names[] = $t->name;
+                }
+            }
+        }
+        $details[] = "Post $post_id: kept '$expected_level', removed: " . implode( ', ', $removed_names );
+    }
+
+    return array(
+        'ok'      => true,
+        'fixed'   => $fixed,
+        'errors'  => $errors,
+        'details' => $details,
+    );
+}
+
+/**
  * REST callback: import status.
  *
  * @return array
@@ -684,6 +778,71 @@ function utm_admission_programmes_import_rest_status() {
         'last_run' => $last_run,
         'next_run' => $next_run ? date_i18n( 'Y-m-d H:i:s', $next_run ) : null,
     );
+}
+
+/**
+ * Auto-fix duplicated level taxonomy terms on programmes.
+ *
+ * Runs after import. Some programmes accumulate BOTH "Postgraduate Coursework"
+ * and "Postgraduate Research" terms. This removes extras, keeping only the
+ * one matching the import source.
+ *
+ * @return void
+ */
+function utm_admission_programmes_import_auto_fix_level_terms() {
+    $taxonomy = 'level';
+    $source_level_map = array(
+        'pg_research'   => 'Postgraduate Research',
+        'pg_coursework' => 'Postgraduate Coursework',
+        'ug'            => 'Undergraduate',
+    );
+
+    $posts = get_posts( array(
+        'post_type'      => UTM_ADM_PROGRAMMES_POST_TYPE,
+        'post_status'    => 'any',
+        'posts_per_page' => 500,
+        'fields'         => 'ids',
+    ) );
+
+    foreach ( $posts as $post_id ) {
+        $terms = get_the_terms( $post_id, $taxonomy );
+        if ( is_wp_error( $terms ) || empty( $terms ) || count( $terms ) < 2 ) {
+            continue;
+        }
+
+        $source = get_post_meta( $post_id, '_utm_adm_programmes_source', true );
+        $expected_level = isset( $source_level_map[ $source ] ) ? $source_level_map[ $source ] : '';
+
+        if ( '' === $expected_level ) {
+            continue;
+        }
+
+        $keep_id = null;
+        $remove_ids = array();
+        foreach ( $terms as $term ) {
+            if ( $term->name === $expected_level ) {
+                $keep_id = $term->term_id;
+            } else {
+                $remove_ids[] = $term->term_id;
+            }
+        }
+
+        if ( empty( $remove_ids ) ) {
+            continue;
+        }
+
+        if ( null === $keep_id ) {
+            $keep_id = $terms[0]->term_id;
+            $remove_ids = array();
+            foreach ( $terms as $i => $term ) {
+                if ( $i > 0 ) $remove_ids[] = $term->term_id;
+            }
+        }
+
+        foreach ( $remove_ids as $remove_id ) {
+            wp_remove_object_terms( $post_id, $remove_id, $taxonomy );
+        }
+    }
 }
 
 /**
@@ -709,6 +868,16 @@ function utm_admission_programmes_import_register_rest_routes() {
             'methods'             => WP_REST_Server::READABLE,
             'permission_callback' => 'utm_admission_programmes_import_rest_permission',
             'callback'            => 'utm_admission_programmes_import_rest_status',
+        )
+    );
+
+    register_rest_route(
+        UTM_ADM_PROGRAMMES_REST_NAMESPACE,
+        '/admission-programmes-import/fix-level-terms',
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'permission_callback' => 'utm_admission_programmes_import_rest_permission',
+            'callback'            => 'utm_admission_programmes_import_rest_fix_level_terms',
         )
     );
 }

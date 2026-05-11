@@ -6,6 +6,7 @@
  *
  * Runs only on admission.utm.my/new2024.
  */
+// Version: 2026-05-11-2 — opcache bust
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -417,10 +418,38 @@ function utm_admission_render_programme_card( $post_id, $atts, $filters ) {
     }
 
     // Level taxonomy — shown as a colored pill badge.
+    // Prefer the term matching the import source to avoid showing wrong level
+    // when a post has multiple terms (e.g. both "Postgraduate Coursework" and "Postgraduate Research").
     $level_terms = get_the_terms( $post_id, $atts['level_taxonomy'] );
     $level_name  = '';
+    $source_key  = '';
     if ( ! is_wp_error( $level_terms ) && ! empty( $level_terms ) ) {
-        $level_name = $level_terms[0]->name;
+        // If only one term, use it directly
+        if ( count( $level_terms ) === 1 ) {
+            $level_name = $level_terms[0]->name;
+        } else {
+            // Multiple terms — pick the one matching the import source
+            $source_key = get_post_meta( $post_id, '_utm_adm_programmes_source', true );
+            foreach ( $level_terms as $term ) {
+                $term_lower = strtolower( $term->name );
+                if ( 'pg_research' === $source_key && false !== strpos( $term_lower, 'research' ) ) {
+                    $level_name = $term->name;
+                    break;
+                }
+                if ( 'pg_coursework' === $source_key && false !== strpos( $term_lower, 'coursework' ) ) {
+                    $level_name = $term->name;
+                    break;
+                }
+                if ( 'ug' === $source_key && false !== strpos( $term_lower, 'undergraduate' ) ) {
+                    $level_name = $term->name;
+                    break;
+                }
+            }
+            // Fallback to first term if no source match
+            if ( '' === $level_name ) {
+                $level_name = $level_terms[0]->name;
+            }
+        }
     }
     $level_slug = preg_replace( '/[^a-z0-9]+/', '-', strtolower( $level_name ) );
 
