@@ -112,9 +112,11 @@ $intl_ok  = $eligible_intl  && ( $has_intl_intake  ? $intake_intl_open  : true )
 $local_closed = $eligible_local && $has_local_intake && ! $intake_local_open;
 $intl_closed  = $eligible_intl  && $has_intl_intake  && ! $intake_intl_open;
 
-// Build apply URLs
+// Build apply URLs — level-aware for International
 $url_local = 'https://smart.utm.my/admission/';
-$url_intl  = 'https://admission.utm.my/international/';
+$url_intl  = $is_ug
+    ? 'https://admission.utm.my/undergraduate-international/'
+    : 'https://admission.utm.my/international-postgraduate-study/';
 
 // ---------- Content sections for accordion ----------
 $sections = array(
