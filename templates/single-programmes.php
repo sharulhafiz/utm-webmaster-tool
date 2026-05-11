@@ -223,6 +223,7 @@ foreach ( $sections as $sk => $sv ) {
     max-width: 800px;
     position: relative;
     z-index: 1;
+    color: #fff;
 }
 .utm-hero-meta {
     display: flex;
