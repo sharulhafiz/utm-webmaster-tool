@@ -82,21 +82,38 @@ $level_colors = array(
 );
 $level_color = isset( $level_colors[ $level_slug ] ) ? $level_colors[ $level_slug ] : array( '#475569', '#f1f5f9' );
 
-// ---------- Apply Now URL Logic ----------
-$is_ug      = false !== stripos( (string) $fields['level_of_study'], 'undergraduate' );
-$is_pg      = ! $is_ug;
-$local_ok   = 'yes' === strtolower( trim( (string) $fields['offered_to_intake_malaysian'] ) );
-$intl_ok    = 'yes' === strtolower( trim( (string) $fields['offered_to_intake_international'] ) );
+// ---------- Apply Now Logic (refined) ----------
+// Uses offered_to (audience eligibility) + intake meta (current availability)
+// per Codex recommendation: show button only when BOTH are true.
+// Falls back to showing button when intake data is missing (assume open).
 
-// Build apply URLs based on level + student type
-$url_local  = 'https://smart.utm.my/admission/';
-$url_intl   = 'https://admission.utm.my/international/';
+$is_ug = false !== stripos( (string) $fields['level_of_study'], 'undergraduate' );
+$is_pg = ! $is_ug;
 
-if ( $is_ug ) {
-    $url_local = 'https://smart.utm.my/admission/';
-} else {
-    $url_local = 'https://smart.utm.my/admission/';
-}
+// Audience eligibility from offered_to field
+$offered_raw     = strtolower( trim( (string) $fields['offered_to'] ) );
+$eligible_local  = (bool) preg_match( '/(local|malaysian)/', $offered_raw );
+$eligible_intl   = (bool) preg_match( '/international/', $offered_raw );
+
+// Intake availability from intake-specific meta
+$raw_local_intake = strtolower( trim( (string) $fields['offered_to_intake_malaysian'] ) );
+$raw_intl_intake  = strtolower( trim( (string) $fields['offered_to_intake_international'] ) );
+$has_local_intake = '' !== $raw_local_intake;
+$has_intl_intake  = '' !== $raw_intl_intake;
+$intake_local_open = $has_local_intake && in_array( $raw_local_intake, array( 'yes', 'y', '1', 'true' ), true );
+$intake_intl_open  = $has_intl_intake  && in_array( $raw_intl_intake,  array( 'yes', 'y', '1', 'true' ), true );
+
+// Combined: eligible AND (intake open OR intake data missing → assume open)
+$local_ok = $eligible_local && ( $has_local_intake ? $intake_local_open : true );
+$intl_ok  = $eligible_intl  && ( $has_intl_intake  ? $intake_intl_open  : true );
+
+// Explicitly closed states (eligible but intake data says "no")
+$local_closed = $eligible_local && $has_local_intake && ! $intake_local_open;
+$intl_closed  = $eligible_intl  && $has_intl_intake  && ! $intake_intl_open;
+
+// Build apply URLs
+$url_local = 'https://smart.utm.my/admission/';
+$url_intl  = 'https://admission.utm.my/international/';
 
 // ---------- Content sections for accordion ----------
 $sections = array(
@@ -478,6 +495,12 @@ foreach ( $sections as $sk => $sv ) {
     background: rgba(255,255,255,0.1);
     border-color: #fff;
 }
+.utm-apply-tbc {
+    color: rgba(255,255,255,0.7);
+    font-size: 14px;
+    margin: 0;
+    padding: 8px 0;
+}
 
 /* --- Director Card --- */
 .utm-director-card {
@@ -681,16 +704,16 @@ foreach ( $sections as $sk => $sv ) {
     </div>
 
     <!-- ============ INTAKE STATUS ============ -->
-    <?php if ( $has('offered_to_intake_malaysian') || $has('offered_to_intake_international') ) : ?>
+    <?php if ( $has('offered_to') || $has('offered_to_intake_malaysian') || $has('offered_to_intake_international') ) : ?>
     <div class="utm-intake-status">
-        <?php if ( $has('offered_to_intake_malaysian') ) : ?>
-            <span class="utm-intake-tag is-<?php echo $local_ok ? 'offered' : 'not-offered'; ?>">
-                <?php echo $local_ok ? '✅' : '❌'; ?> Malaysian: <?php echo $local_ok ? 'Sept Intake Open' : 'Not Available'; ?>
+        <?php if ( $eligible_local ) : ?>
+            <span class="utm-intake-tag is-<?php echo $local_closed ? 'not-offered' : 'offered'; ?>">
+                <?php echo $local_closed ? '❌' : '✅'; ?> Malaysian: <?php echo $local_ok ? 'Intake Open' : ( $local_closed ? 'Not Available' : 'TBC' ); ?>
             </span>
         <?php endif; ?>
-        <?php if ( $has('offered_to_intake_international') ) : ?>
-            <span class="utm-intake-tag is-<?php echo $intl_ok ? 'offered' : 'not-offered'; ?>">
-                <?php echo $intl_ok ? '✅' : '❌'; ?> International: <?php echo $intl_ok ? 'Sept Intake Open' : 'Not Available'; ?>
+        <?php if ( $eligible_intl ) : ?>
+            <span class="utm-intake-tag is-<?php echo $intl_closed ? 'not-offered' : 'offered'; ?>">
+                <?php echo $intl_closed ? '❌' : '✅'; ?> International: <?php echo $intl_ok ? 'Intake Open' : ( $intl_closed ? 'Not Available' : 'TBC' ); ?>
             </span>
         <?php endif; ?>
     </div>
@@ -807,7 +830,7 @@ foreach ( $sections as $sk => $sv ) {
         <h2>Ready to Join UTM?</h2>
         <p>Take the next step towards your future — apply now for this programme.</p>
         <div class="utm-apply-row">
-            <?php if ( $local_ok || ! $intl_ok ) : ?>
+            <?php if ( $local_ok ) : ?>
             <a href="<?php echo esc_url( $url_local ); ?>" class="utm-apply-btn" target="_blank" rel="noopener">
                 Apply (Malaysian) &rarr;
             </a>
@@ -816,6 +839,9 @@ foreach ( $sections as $sk => $sv ) {
             <a href="<?php echo esc_url( $url_intl ); ?>" class="utm-apply-btn is-outline" target="_blank" rel="noopener">
                 Apply (International) &rarr;
             </a>
+            <?php endif; ?>
+            <?php if ( ! $local_ok && ! $intl_ok && ( $eligible_local || $eligible_intl ) ) : ?>
+            <p class="utm-apply-tbc">Intake details coming soon — check back later.</p>
             <?php endif; ?>
         </div>
     </div>
@@ -858,7 +884,9 @@ foreach ( $sections as $sk => $sv ) {
 <div class="utm-sticky-apply" id="utm-sticky-apply">
     <div class="utm-sticky-inner">
         <span class="utm-sticky-title"><?php echo esc_html( $fields['program_name'] ?: get_the_title() ); ?></span>
-        <a href="<?php echo esc_url( $url_local ); ?>" class="utm-sticky-apply-btn" target="_blank" rel="noopener">Apply Now &rarr;</a>
+        <?php if ( $local_ok || $intl_ok ) : ?>
+        <a href="<?php echo esc_url( $local_ok ? $url_local : $url_intl ); ?>" class="utm-sticky-apply-btn" target="_blank" rel="noopener">Apply Now &rarr;</a>
+        <?php endif; ?>
     </div>
 </div>
 
