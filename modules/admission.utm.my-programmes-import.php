@@ -878,20 +878,36 @@ function utm_admission_programmes_import_rest_cleanup_offered_to() {
         $allowed_esc[] = $wpdb->_real_escape( $v );
     }
 
-    // Delete invalid offered_to values
-    $deleted = $wpdb->query(
-        "DELETE FROM {$wpdb->postmeta}
-         WHERE meta_key = 'offered_to'
-           AND meta_value <> ''
-           AND meta_value NOT IN ('" . implode( "','", $allowed_esc ) . "')
-           AND post_id IN (
-               SELECT ID FROM {$wpdb->posts}
-               WHERE post_type = '" . UTM_ADM_PROGRAMMES_POST_TYPE . "'
-               AND post_status = 'publish'
-           )"
+    $source_meta_key = '_utm_adm_programmes_source';
+
+    // Step 1: Delete ALL imported programme posts (with source meta)
+    // These are the thousands of fake rows from the broken CSV parser
+    $ids = $wpdb->get_col(
+        "SELECT p.ID FROM {$wpdb->posts} p
+         INNER JOIN {$wpdb->postmeta} sm ON sm.post_id = p.ID AND sm.meta_key = '{$source_meta_key}'
+         WHERE p.post_type = 'programmes'
+         AND sm.meta_value IN ('pg_research', 'pg_coursework', 'ug')"
     );
 
-    // Clear filter transients
+    $total_deleted = 0;
+    $meta_deleted = 0;
+    $term_deleted = 0;
+
+    if ( ! empty( $ids ) ) {
+        $id_list = implode( ',', array_map( 'intval', $ids ) );
+        $total_deleted = count( $ids );
+
+        // Delete term relationships
+        $term_deleted = $wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE object_id IN ({$id_list})" );
+
+        // Delete post meta
+        $meta_deleted = $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE post_id IN ({$id_list})" );
+
+        // Delete posts
+        $wpdb->query( "DELETE FROM {$wpdb->posts} WHERE ID IN ({$id_list})" );
+    }
+
+    // Step 2: Clear filter transients
     $transient_cleared = $wpdb->query(
         "DELETE FROM {$wpdb->options}
          WHERE option_name LIKE '\_transient\_utm\_adm\_meta\_opts\_%'
@@ -899,10 +915,12 @@ function utm_admission_programmes_import_rest_cleanup_offered_to() {
     );
 
     return array(
-        'ok'                => true,
-        'invalid_removed'   => (int) $deleted,
-        'transients_cleared' => (int) $transient_cleared,
-        'message'           => 'Cleanup complete. Run /admission-programmes-import/run to re-import.',
+        'ok'                    => true,
+        'programmes_removed'    => $total_deleted,
+        'term_relationships_removed' => (int) $term_deleted,
+        'meta_rows_removed'     => (int) $meta_deleted,
+        'transients_cleared'    => (int) $transient_cleared,
+        'message'               => 'All imported programmes deleted. Run /admission-programmes-import/run to re-import cleanly.',
     );
 }
 
