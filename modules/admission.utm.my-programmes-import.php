@@ -422,11 +422,23 @@ function utm_admission_programmes_import_upsert_row( $row, $source, $config ) {
         $status  = 'created';
     }
 
+    $processed_meta_keys = array();
     foreach ( $row as $raw_key => $value ) {
         $meta_key = utm_admission_programmes_import_resolve_meta_key( $raw_key );
         if ( '' === $meta_key ) {
             continue;
         }
+
+        // Skip aliased duplicate: if this meta_key was already set by an earlier
+        // column (e.g. "Scheme of Study" aliased to study_scheme when "Study Scheme"
+        // already processed), preserve it as raw but don't overwrite the clean value.
+        if ( in_array( $meta_key, $processed_meta_keys, true ) ) {
+            if ( $meta_key !== $raw_key ) {
+                update_post_meta( $post_id, '_utm_adm_raw_' . $raw_key, (string) $value );
+            }
+            continue;
+        }
+        $processed_meta_keys[] = $meta_key;
 
         // Validate offered_to — reject anything that's not Malaysian/International.
         if ( 'offered_to' === $meta_key ) {
