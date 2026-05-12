@@ -470,6 +470,35 @@ foreach ( $sections as $sk => $sv ) {
     gap: 12px;
     justify-content: center;
 }
+.utm-apply-ref {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+}
+.utm-ref-label {
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 4px;
+}
+.utm-ref-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    line-height: 1.4;
+}
 .utm-apply-btn {
     display: inline-flex;
     align-items: center;
@@ -718,12 +747,6 @@ foreach ( $sections as $sk => $sv ) {
                 <?php echo $intl_closed ? '❌' : '✅'; ?> International: <?php echo $intl_ok ? 'Intake Open' : ( $intl_closed ? 'Not Available' : 'TBC' ); ?>
             </span>
         <?php endif; ?>
-        <?php if ( $has('sept_intake_malaysian_upu') ) : ?>
-            <span class="utm-intake-tag is-offered">🎓 UPU: <?php echo esc_html( $fields['sept_intake_malaysian_upu'] ); ?></span>
-        <?php endif; ?>
-        <?php if ( $has('sept_intake_malaysian_utm_smart') ) : ?>
-            <span class="utm-intake-tag is-offered">📋 SMARt: <?php echo esc_html( $fields['sept_intake_malaysian_utm_smart'] ); ?></span>
-        <?php endif; ?>
     </div>
     <?php endif; ?>
 
@@ -852,6 +875,18 @@ foreach ( $sections as $sk => $sv ) {
             <p class="utm-apply-tbc">Intake details coming soon — check back later.</p>
             <?php endif; ?>
         </div>
+
+        <?php if ( $has('sept_intake_malaysian_upu') || $has('sept_intake_malaysian_utm_smart') ) : ?>
+        <div class="utm-apply-ref">
+            <span class="utm-ref-label">Sept intake entry routes:</span>
+            <?php if ( $has('sept_intake_malaysian_upu') ) : ?>
+                <span class="utm-ref-badge">🎓 UPU: <?php echo esc_html( $fields['sept_intake_malaysian_upu'] ); ?></span>
+            <?php endif; ?>
+            <?php if ( $has('sept_intake_malaysian_utm_smart') ) : ?>
+                <span class="utm-ref-badge">📋 SMARt: <?php echo esc_html( $fields['sept_intake_malaysian_utm_smart'] ); ?></span>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
     </div>
 
     <!-- ============ ADDITIONAL INFO ============ -->
@@ -859,12 +894,6 @@ foreach ( $sections as $sk => $sv ) {
     $extra_items = array();
     if ( $has('category_malaysian') ) {
         $extra_items[] = array( 'Entry Category (Malaysian)', $fields['category_malaysian'] );
-    }
-    if ( $has('sept_intake_malaysian_upu') ) {
-        $extra_items[] = array( 'Sept Intake (UPU)', $fields['sept_intake_malaysian_upu'] );
-    }
-    if ( $has('sept_intake_malaysian_utm_smart') ) {
-        $extra_items[] = array( 'Sept Intake (SMARt)', $fields['sept_intake_malaysian_utm_smart'] );
     }
     if ( $has('interview_and_non_interview_programme') ) {
         $val = $fields['interview_and_non_interview_programme'];
