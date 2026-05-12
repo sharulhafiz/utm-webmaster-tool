@@ -58,10 +58,11 @@ $fields = array(
     'interview_and_non_interview_programme' => get_post_meta( $post_id, 'interview_and_non_interview_programme', true ),
     'colour_blind_test_cbt' => get_post_meta( $post_id, 'colour_blind_test_cbt', true ),
     'category_malaysian'    => get_post_meta( $post_id, 'category_malaysian', true ),
-    'sept_intake_malaysian_upu' => get_post_meta( $post_id, 'sept_intake_malaysian_upu', true ),
-    'offered_to'                => get_post_meta( $post_id, 'offered_to', true ),
-    'offered_to_intake_malaysian'    => get_post_meta( $post_id, 'offered_to_september_2026_intake_malaysian', true ),
-    'offered_to_intake_international' => get_post_meta( $post_id, 'offered_to_september_2026_intake_international', true ),
+    'sept_intake_malaysian_upu'      => get_post_meta( $post_id, 'sept_intake_malaysian_upu', true ),
+    'sept_intake_malaysian_utm_smart' => get_post_meta( $post_id, 'sept_intake_malaysian_utm_smart', true ),
+    'offered_to'                     => get_post_meta( $post_id, 'offered_to', true ),
+    'offered_to_intake_malaysian'    => get_post_meta( $post_id, 'offered_to_upcoming_intake_malaysian', true ),
+    'offered_to_intake_international' => get_post_meta( $post_id, 'offered_to_upcoming_intake_international', true ),
 );
 
 // ---------- Helpers ----------
@@ -717,6 +718,12 @@ foreach ( $sections as $sk => $sv ) {
                 <?php echo $intl_closed ? '❌' : '✅'; ?> International: <?php echo $intl_ok ? 'Intake Open' : ( $intl_closed ? 'Not Available' : 'TBC' ); ?>
             </span>
         <?php endif; ?>
+        <?php if ( $has('sept_intake_malaysian_upu') ) : ?>
+            <span class="utm-intake-tag is-offered">🎓 UPU: <?php echo esc_html( $fields['sept_intake_malaysian_upu'] ); ?></span>
+        <?php endif; ?>
+        <?php if ( $has('sept_intake_malaysian_utm_smart') ) : ?>
+            <span class="utm-intake-tag is-offered">📋 SMARt: <?php echo esc_html( $fields['sept_intake_malaysian_utm_smart'] ); ?></span>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 
@@ -854,7 +861,10 @@ foreach ( $sections as $sk => $sv ) {
         $extra_items[] = array( 'Entry Category (Malaysian)', $fields['category_malaysian'] );
     }
     if ( $has('sept_intake_malaysian_upu') ) {
-        $extra_items[] = array( 'Sept Intake (Malaysian)', $fields['sept_intake_malaysian_upu'] );
+        $extra_items[] = array( 'Sept Intake (UPU)', $fields['sept_intake_malaysian_upu'] );
+    }
+    if ( $has('sept_intake_malaysian_utm_smart') ) {
+        $extra_items[] = array( 'Sept Intake (SMARt)', $fields['sept_intake_malaysian_utm_smart'] );
     }
     if ( $has('interview_and_non_interview_programme') ) {
         $val = $fields['interview_and_non_interview_programme'];
