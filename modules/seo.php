@@ -33,6 +33,9 @@ function utm_is_divi_builder_request() {
  */
 function utm_seo() {
     if ((!is_admin())) {
+        // Output JSON-LD structured data.
+        utm_output_jsonld_schema();
+
         // Output Open Graph and Twitter Card metadata.
         utm_output_social_meta_tags();
 
@@ -64,6 +67,104 @@ function utm_seo() {
         
         // Enqueue outgoing link tracking script
         enqueue_outgoing_link_tracking();
+    }
+}
+
+/**
+ * Output JSON-LD structured data (schema.org).
+ *
+ * Outputs Organization + WebSite schema on all pages,
+ * and NewsArticle schema on single post pages.
+ */
+function utm_output_jsonld_schema() {
+    $site_name = wp_strip_all_tags(get_bloginfo('name'));
+    $site_url = home_url('/');
+    $search_url = home_url('/?s={search_term_string}');
+
+    $org = array(
+        '@context' => 'https://schema.org',
+        '@graph' => array(
+            array(
+                '@type' => 'Organization',
+                '@id' => $site_url . '#organization',
+                'name' => $site_name,
+                'url' => $site_url,
+                'logo' => array(
+                    '@type' => 'ImageObject',
+                    'url' => $site_url . 'wp-content/uploads/2023/08/UTM-LOGO-FULL-Copy.png',
+                    'width' => 512,
+                    'height' => 512,
+                ),
+            ),
+            array(
+                '@type' => 'WebSite',
+                '@id' => $site_url . '#website',
+                'url' => $site_url,
+                'name' => $site_name,
+                'publisher' => array('@id' => $site_url . '#organization'),
+                'potentialAction' => array(
+                    array(
+                        '@type' => 'SearchAction',
+                        'target' => array(
+                            '@type' => 'EntryPoint',
+                            'urlTemplate' => $search_url,
+                        ),
+                        'query-input' => 'required name=search_term_string',
+                    ),
+                ),
+            ),
+        ),
+    );
+
+    if (is_singular('post')) {
+        global $post;
+        if (is_object($post) && isset($post->ID)) {
+            $title = wp_strip_all_tags(get_the_title($post->ID));
+            $permalink = get_permalink($post->ID);
+            $excerpt = wp_strip_all_tags(get_the_excerpt($post->ID) ?: wp_trim_words($post->post_content, 40));
+            $published = get_the_date('c', $post->ID);
+            $modified = get_the_modified_date('c', $post->ID);
+            $author_name = get_the_author_meta('display_name', $post->post_author);
+
+            $article = array(
+                '@type' => 'NewsArticle',
+                '@id' => $permalink . '#newsarticle',
+                'headline' => $title,
+                'description' => $excerpt,
+                'url' => $permalink,
+                'mainEntityOfPage' => array(
+                    '@type' => 'WebPage',
+                    '@id' => $permalink,
+                ),
+                'datePublished' => $published,
+                'dateModified' => $modified,
+                'author' => array(
+                    '@type' => 'Person',
+                    'name' => $author_name,
+                ),
+                'publisher' => array('@id' => $site_url . '#organization'),
+            );
+
+            if (has_post_thumbnail($post->ID)) {
+                $thumb_id = get_post_thumbnail_id($post->ID);
+                $image = wp_get_attachment_image_src($thumb_id, 'full');
+                if ($image) {
+                    $article['image'] = array(
+                        '@type' => 'ImageObject',
+                        'url' => $image[0],
+                        'width' => $image[1],
+                        'height' => $image[2],
+                    );
+                }
+            }
+
+            $org['@graph'][] = $article;
+        }
+    }
+
+    $json = wp_json_encode($org, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($json) {
+        echo "\n<script type=\"application/ld+json\">\n" . $json . "\n</script>\n";
     }
 }
 
@@ -299,7 +400,7 @@ function enqueue_outgoing_link_tracking() {
             });
             
             // Track download links
-            var downloadLinks = document.querySelectorAll('a[href$=\".pdf\"], a[href$=\".zip\"], a[href$=\".doc\"], a[href$=\".docx\"], a[href$=\".xls\"], a[href$=\".xlsx\"], a[href$=\".ppt\"], a[href$=\".pptx\"], a[href*=\"download\"]');
+            var downloadLinks = document.querySelectorAll('a[href$=\"\\\\.pdf\"], a[href$=\"\\\\.zip\"], a[href$=\"\\\\.doc\"], a[href$=\"\\\\.docx\"], a[href$=\"\\\\.xls\"], a[href$=\"\\\\.xlsx\"], a[href$=\"\\\\.ppt\"], a[href$=\"\\\\.pptx\"], a[href*=\"download\"]');
             downloadLinks.forEach(function(link) {
                 link.addEventListener('click', function(event) {
                     if (typeof gtag === 'undefined') return;
@@ -374,6 +475,3 @@ function enqueue_adblock_notice_script() {
     ");
 }
 add_action('wp_footer', 'enqueue_adblock_notice_script');
-
-
-
