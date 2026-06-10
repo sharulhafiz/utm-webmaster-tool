@@ -170,6 +170,9 @@ class UTM_Webmaster_Tool_Backup {
      * Create a database backup using mysqldump
      */
     public function create_database_backup() {
+        // Clean up old backups BEFORE creating a new one (prevent disk full)
+        $this->cleanup_old_backups();
+        
         $timestamp = date('Ymd-His');
         $backup_file = $this->backup_dir . '/database-backup-' . $timestamp . '.sql';
         $compressed_file = $backup_file . '.gz';
@@ -197,24 +200,17 @@ class UTM_Webmaster_Tool_Backup {
             
             // Verify backup integrity
             if ( ! $this->verify_backup_integrity( $backup_file ) ) {
+                // Clean up failed backup
+                if ( file_exists( $backup_file ) ) { unlink( $backup_file ); }
                 throw new Exception( 'Backup integrity check failed' );
             }
             
-            // Compress the backup
+            // Compress the backup using system gzip (removes raw .sql on success)
             $this->compress_backup( $backup_file, $compressed_file );
             
-            // Remove uncompressed file
-            if ( file_exists( $compressed_file ) && filesize( $compressed_file ) > 0 ) {
-                unlink( $backup_file );
-                $final_file = basename( $compressed_file );
-                $file_size = size_format( filesize( $compressed_file ) );
-            } else {
-                $final_file = basename( $backup_file );
-                $file_size = size_format( filesize( $backup_file ) );
-            }
-            
-            // Clean up old backups (keep last 7 days)
-            $this->cleanup_old_backups();
+            // After compression, only the .gz should remain
+            $final_file = basename( $compressed_file );
+            $file_size = size_format( filesize( $compressed_file ) );
             
             error_log( 'UTM Backup: Database backup completed successfully: ' . $final_file . ' (' . $file_size . ')' );
             
@@ -391,51 +387,67 @@ class UTM_Webmaster_Tool_Backup {
     }
     
     /**
-     * Compress backup file using gzip
+     * Compress backup file using system gzip (fast, no PHP timeout for large files)
      */
     private function compress_backup( $source_file, $compressed_file ) {
-        if ( ! function_exists( 'gzopen' ) ) {
-            return false; // Skip compression if gzip not available
+        if ( ! file_exists( $source_file ) ) {
+            throw new Exception( 'Source file not found for compression: ' . $source_file );
         }
         
-        $source = fopen( $source_file, 'rb' );
-        $compressed = gzopen( $compressed_file, 'wb9' );
+        $command = sprintf(
+            'gzip -c %s > %s',
+            escapeshellarg( $source_file ),
+            escapeshellarg( $compressed_file )
+        );
         
-        if ( ! $source || ! $compressed ) {
-            return false;
+        exec( $command . ' 2>&1', $output, $return_code );
+        
+        if ( $return_code !== 0 || ! file_exists( $compressed_file ) || filesize( $compressed_file ) === 0 ) {
+            throw new Exception( 'gzip compression failed: ' . implode( "\n", $output ) );
         }
         
-        while ( ! feof( $source ) ) {
-            gzwrite( $compressed, fread( $source, 8192 ) );
-        }
-        
-        fclose( $source );
-        gzclose( $compressed );
+        // Always remove the raw SQL after successful compression
+        unlink( $source_file );
         
         return true;
     }
     
     /**
-     * Remove backup files older than configured retention period
+     * Remove backup files older than configured retention period (14 days default)
+     * Uses filename-based date parsing for reliability (not filemtime).
      */
     private function cleanup_old_backups() {
-        $retention_days = get_option( 'utm_backup_retention_days', 7 );
-        $cutoff_time = time() - ( $retention_days * 24 * 60 * 60 );
+        $retention_days = get_option( 'utm_backup_retention_days', 14 );
+        $cutoff_date = date( 'Ymd', time() - ( $retention_days * 24 * 60 * 60 ) );
         
         $backup_files = glob( $this->backup_dir . '/database-backup-*.sql*' );
+        if ( empty( $backup_files ) ) {
+            return;
+        }
         
         $deleted_count = 0;
+        $total_size = 0;
         foreach ( $backup_files as $file ) {
-            if ( filemtime( $file ) < $cutoff_time ) {
+            // Parse date from filename: database-backup-YYYYMMDD-HHMMSS.sql[.gz]
+            $basename = basename( $file );
+            if ( ! preg_match( '/^database-backup-(\d{8})-\d{6}\.sql/', $basename, $matches ) ) {
+                continue; // Skip files that don't match the expected pattern
+            }
+            $file_date = $matches[1];
+            
+            if ( $file_date < $cutoff_date ) {
+                $file_size = filesize( $file );
                 if ( unlink( $file ) ) {
                     $deleted_count++;
-                    error_log( 'UTM Backup: Removed old backup file: ' . basename( $file ) );
+                    $total_size += $file_size;
+                    error_log( 'UTM Backup: Removed old backup: ' . $basename );
                 }
             }
         }
         
         if ( $deleted_count > 0 ) {
-            error_log( sprintf( 'UTM Backup: Cleaned up %d old backup file(s)', $deleted_count ) );
+            $freed = size_format( $total_size );
+            error_log( sprintf( 'UTM Backup: Cleaned up %d old backup(s), freed %s', $deleted_count, $freed ) );
         }
     }
     
