@@ -721,7 +721,7 @@ function utm_sso_validate_session() {
         sso_clear_shared_cookie('email', false);
         sso_clear_shared_cookie('sso_key', true);
         wp_logout();
-        wp_redirect( wp_login_url() );
+        wp_redirect( wp_login_url( home_url( $_SERVER['REQUEST_URI'] ) ) );
         exit;
     }
 }
@@ -884,7 +884,7 @@ function sso_redirect_to_login() {
         strtolower($current_host) === strtolower($target_host) &&
         rtrim($current_path, '/') === rtrim($target_path, '/')
     ) {
-        wp_redirect(wp_login_url());
+        wp_redirect(wp_login_url(home_url($_SERVER['REQUEST_URI'])));
         exit;
     }
 }

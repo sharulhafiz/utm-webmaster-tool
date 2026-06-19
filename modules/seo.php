@@ -6,6 +6,7 @@ if (!defined('ABSPATH')) {
 
 // Hook into WordPress head output.
 add_action('wp_head', 'utm_seo', 5);
+add_action('wp_head', 'utm_output_canonical_url', 3);
 
 /**
  * Determine whether current request is Divi visual/builder context.
@@ -27,6 +28,108 @@ function utm_is_divi_builder_request() {
 
     return false;
 }
+
+/**
+ * Output the canonical URL for the current page.
+ *
+ * Helps search engines consolidate ranking signals to the preferred URL.
+ * Skips when a dedicated SEO plugin is active to avoid duplicate tags.
+ * Hooks at priority 3 (before other meta tags).
+ */
+function utm_output_canonical_url() {
+    if (is_admin() || is_feed()) {
+        return;
+    }
+
+    // Avoid duplicates if a dedicated SEO plugin already handles this.
+    if (defined('WPSEO_VERSION') || defined('RANK_MATH_VERSION') || defined('AIOSEO_VERSION')) {
+        return;
+    }
+
+    // Skip singular posts — WordPress core and Divi both already output canonical for singles.
+    if (is_singular()) {
+        return;
+    }
+
+    $canonical = '';
+
+    if (is_front_page() || is_home()) {
+        $canonical = home_url('/');
+    } elseif (is_category() || is_tag() || is_tax()) {
+        $term = get_queried_object();
+        if (is_object($term) && !empty($term->term_id)) {
+            $canonical = get_term_link($term);
+        }
+    } elseif (is_search()) {
+        $canonical = get_search_link(get_search_query());
+    } elseif (is_author()) {
+        $canonical = get_author_posts_url(get_queried_object_id());
+    } elseif (is_post_type_archive()) {
+        $canonical = get_post_type_archive_link(get_post_type());
+    } elseif (is_day()) {
+        $canonical = get_day_link(get_query_var('year'), get_query_var('monthnum'), get_query_var('day'));
+    } elseif (is_month()) {
+        $canonical = get_month_link(get_query_var('year'), get_query_var('monthnum'));
+    } elseif (is_year()) {
+        $canonical = get_year_link(get_query_var('year'));
+    }
+
+    if (!empty($canonical)) {
+        $canonical = user_trailingslashit(esc_url($canonical));
+        echo '<link rel="canonical" href="' . esc_url($canonical) . '">' . "\n";
+    }
+}
+
+/**
+ * Output WebSite JSON-LD structured data on the homepage.
+ *
+ * Tells Google the preferred site name for search results.
+ * Uses the WordPress Site Title (Settings > General) so admins have full control.
+ * Hooks early (priority 1) to run before other metadata.
+ */
+function utm_output_website_schema() {
+    if (is_admin() || is_feed()) {
+        return;
+    }
+
+    // Only output on the homepage — Google requires WebSite schema on the root URL.
+    if (!is_front_page() && !is_home()) {
+        return;
+    }
+
+    // Avoid duplicates if a dedicated SEO plugin already handles this.
+    if (defined('WPSEO_VERSION') || defined('RANK_MATH_VERSION') || defined('AIOSEO_VERSION')) {
+        return;
+    }
+
+    $site_name = wp_strip_all_tags(get_bloginfo('name'));
+    if (empty($site_name)) {
+        return;
+    }
+
+    $schema = array(
+        '@context' => 'https://schema.org',
+        '@type'    => 'WebSite',
+        'name'     => $site_name,
+        'url'      => home_url('/'),
+    );
+
+    /**
+     * Filter the alternateName for the WebSite schema.
+     *
+     * @param string $alternate_name Alternate site name (e.g. "UTM").
+     */
+    $alternate_name = apply_filters('utm_website_schema_alternate_name', 'UTM');
+    if (!empty($alternate_name)) {
+        $schema['alternateName'] = $alternate_name;
+    }
+
+    echo "\n";
+    echo '<script type="application/ld+json">' . "\n";
+    echo wp_json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS) . "\n";
+    echo '</script>' . "\n";
+}
+add_action('wp_head', 'utm_output_website_schema', 1);
 
 /**
  * Main SEO bootstrap for head output.
@@ -244,6 +347,9 @@ function utm_output_social_meta_tags() {
     // Keep metadata within common platform limits.
     $title = trim(wp_html_excerpt($title, 200, ''));
     $description = trim(wp_html_excerpt($description, 300, ''));
+
+    // Output standard meta description tag (the most basic SEO element).
+    echo '<meta name="description" content="' . esc_attr($description) . '">' . "\n";
 
     echo "\n";
     echo '<meta property="og:site_name" content="' . esc_attr($site_name) . '">' . "\n";
