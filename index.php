@@ -116,6 +116,7 @@ function utm_get_all_module_slugs() {
         'admission.utm.my-programmes-filter',
         'admission.utm.my-programmes-import',
         'sustainable.utm.my',
+        'nginx-cache',
     );
 }
 
