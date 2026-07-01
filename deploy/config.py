@@ -23,6 +23,7 @@ PILOT_WAVE = [
 
 # ── Wave B: Mid-risk sites (deploy after Pilot is verified) ──────────────────
 MID_WAVE = [
+    "alumni",         # Alumni relations site
     "chancellery",   # Admin hub — important but controlled audience
     "research",      # Research portal
     "fkt",           # Faculty
