@@ -452,9 +452,10 @@ function nginx_cache_get_cached_urls( $domain, $force_refresh = false ) {
     if ( isset( $cache_servers[ $domain ] ) && ! empty( $shared_token ) ) {
         $server_url = untrailingslashit( $cache_servers[ $domain ] );
         $resp = wp_remote_get( add_query_arg( [
+            'action' => 'list',
             'domain' => $domain,
             'token'  => $shared_token,
-        ], $server_url . '/wp-json/utm/v1/cache-urls' ), [
+        ], $server_url . '/utm-purge-handler.php' ), [
             'timeout'   => 10,
             'sslverify' => false,
         ] );
@@ -633,9 +634,10 @@ function nginx_cache_get_stats( $domain, $force_refresh = false ) {
     if ( isset( $cache_servers[ $domain ] ) && ! empty( $shared_token ) ) {
         $server_url = untrailingslashit( $cache_servers[ $domain ] );
         $resp = wp_remote_get( add_query_arg( [
+            'action' => 'stats',
             'domain' => $domain,
             'token'  => $shared_token,
-        ], $server_url . '/wp-json/utm/v1/cache-stats' ), [
+        ], $server_url . '/utm-purge-handler.php' ), [
             'timeout'   => 10,
             'sslverify' => false,
         ] );
@@ -743,12 +745,12 @@ function nginx_cache_auto_purge( $post_id, $post, $update ) {
         $server_url = untrailingslashit( $cache_servers[ $domain ] );
         foreach ( $urls_to_purge as $url ) {
             $url_path = wp_parse_url( $url, PHP_URL_PATH ) ?: '/';
-            wp_remote_post( $server_url . '/wp-json/utm/v1/cache-purge', [
-                'body'      => [
-                    'domain' => $domain,
-                    'url'    => $url_path,
-                    'token'  => $shared_token,
-                ],
+            wp_remote_get( add_query_arg( [
+                'action' => 'purge',
+                'domain' => $domain,
+                'url'    => $url_path,
+                'token'  => $shared_token,
+            ], $server_url . '/utm-purge-handler.php' ), [
                 'timeout'   => 10,
                 'blocking'  => false,   // fire-and-forget
                 'sslverify' => false,
