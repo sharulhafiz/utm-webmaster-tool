@@ -21,6 +21,143 @@ add_action( 'admin_menu', function () {
     );
 } );
 
+// ─── Cache Purge REST API ───────────────────────────────────────────────
+// Allows remote servers (www2-5) to request cache purges via HTTP when
+// PHP-FPM and nginx are on different hosts (e.g., space.utm.my www5→www2).
+
+/** UTM server IPs allowed to issue remote purge requests. */
+define( 'UTM_CACHE_PURGE_ALLOWED_IPS', [
+    '161.139.17.183',  // www2
+    '161.139.22.87',   // www3
+    '161.139.22.123',  // www4
+    '161.139.22.219',  // www5
+    '127.0.0.1',
+    '::1',
+] );
+
+add_action( 'rest_api_init', function () {
+    register_rest_route( 'utm/v1', '/cache-purge', [
+        'methods'             => 'POST',
+        'callback'            => 'utm_cache_purge_handle_request',
+        'permission_callback' => function ( WP_REST_Request $r ) {
+            // IP allowlist
+            $client_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            if ( ! in_array( $client_ip, UTM_CACHE_PURGE_ALLOWED_IPS, true ) ) {
+                return false;
+            }
+            // Token verification
+            $config = get_site_option( 'utm_cache_purge_config', [] );
+            $token  = $config['auth_token'] ?? '';
+            if ( empty( $token ) ) {
+                return false;
+            }
+            return hash_equals( $token, $r->get_param( 'token' ) );
+        },
+    ] );
+} );
+
+function utm_cache_purge_run_command( $domain, $args = '' ) {
+    $command = '/usr/local/bin/nginx-cache-purge ' . escapeshellarg( $domain );
+    if ( ! empty( $args ) ) {
+        $command .= ' ' . $args;
+    }
+    $output_lines = [];
+    $exit_code    = 0;
+    exec( 'sudo ' . $command . ' 2>&1', $output_lines, $exit_code );
+    return [ 'exit_code' => $exit_code, 'output' => implode( "\n", $output_lines ), 'lines' => $output_lines ];
+}
+
+function utm_cache_purge_handle_request( WP_REST_Request $r ) {
+    $domain = $r->get_param( 'domain' );
+    $url    = $r->get_param( 'url' );
+
+    if ( empty( $domain ) ) {
+        return new WP_REST_Response( [ 'success' => false, 'message' => 'Domain is required.' ], 400 );
+    }
+
+    $result = utm_cache_purge_run_command( $domain, ! empty( $url ) ? escapeshellarg( $url ) : 'all' );
+
+    if ( 0 === $result['exit_code'] ) {
+        return new WP_REST_Response( [ 'success' => true, 'message' => $result['output'] ], 200 );
+    }
+    return new WP_REST_Response( [ 'success' => false, 'message' => $result['output'] ], 500 );
+}
+
+add_action( 'rest_api_init', function () {
+    register_rest_route( 'utm/v1', '/cache-stats', [
+        'methods'             => 'GET',
+        'callback'            => 'utm_cache_stats_handle_request',
+        'permission_callback' => function ( WP_REST_Request $r ) {
+            $client_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            if ( ! in_array( $client_ip, UTM_CACHE_PURGE_ALLOWED_IPS, true ) ) {
+                return false;
+            }
+            $config = get_site_option( 'utm_cache_purge_config', [] );
+            $token  = $config['auth_token'] ?? '';
+            if ( empty( $token ) ) {
+                return false;
+            }
+            return hash_equals( $token, $r->get_param( 'token' ) );
+        },
+    ] );
+} );
+
+function utm_cache_stats_handle_request( WP_REST_Request $r ) {
+    $domain = $r->get_param( 'domain' );
+    if ( empty( $domain ) ) {
+        return new WP_REST_Response( [ 'success' => false, 'message' => 'Domain is required.' ], 400 );
+    }
+    $result = utm_cache_purge_run_command( $domain, '--stats' );
+    if ( 0 !== $result['exit_code'] ) {
+        return new WP_REST_Response( [ 'success' => false, 'message' => $result['output'] ], 500 );
+    }
+    $stats = [];
+    foreach ( $result['lines'] as $line ) {
+        if ( preg_match( '/^([\w\s]+):\s+(.+)$/', $line, $m ) ) {
+            $stats[ trim( $m[1] ) ] = trim( $m[2] );
+        }
+    }
+    return new WP_REST_Response( [ 'success' => true, 'stats' => $stats ], 200 );
+}
+
+add_action( 'rest_api_init', function () {
+    register_rest_route( 'utm/v1', '/cache-urls', [
+        'methods'             => 'GET',
+        'callback'            => 'utm_cache_urls_handle_request',
+        'permission_callback' => function ( WP_REST_Request $r ) {
+            $client_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            if ( ! in_array( $client_ip, UTM_CACHE_PURGE_ALLOWED_IPS, true ) ) {
+                return false;
+            }
+            $config = get_site_option( 'utm_cache_purge_config', [] );
+            $token  = $config['auth_token'] ?? '';
+            if ( empty( $token ) ) {
+                return false;
+            }
+            return hash_equals( $token, $r->get_param( 'token' ) );
+        },
+    ] );
+} );
+
+function utm_cache_urls_handle_request( WP_REST_Request $r ) {
+    $domain = $r->get_param( 'domain' );
+    if ( empty( $domain ) ) {
+        return new WP_REST_Response( [ 'success' => false, 'message' => 'Domain is required.' ], 400 );
+    }
+    $result = utm_cache_purge_run_command( $domain, '--list' );
+    if ( 0 !== $result['exit_code'] ) {
+        return new WP_REST_Response( [ 'success' => false, 'message' => $result['output'] ], 500 );
+    }
+    $urls = [];
+    foreach ( $result['lines'] as $line ) {
+        $line = trim( $line );
+        if ( ! empty( $line ) && ! str_starts_with( $line, '[' ) ) {
+            $urls[] = $line;
+        }
+    }
+    return new WP_REST_Response( [ 'success' => true, 'urls' => $urls ], 200 );
+}
+
 /**
  * Enqueue admin styles.
  */
@@ -307,6 +444,30 @@ function nginx_cache_get_cached_urls( $domain, $force_refresh = false ) {
         }
     }
 
+    // Check if this domain's cache is on a remote proxy server
+    $config       = get_site_option( 'utm_cache_purge_config', [] );
+    $cache_servers = $config['remote_cache_servers'] ?? [];
+    $shared_token  = $config['auth_token'] ?? '';
+
+    if ( isset( $cache_servers[ $domain ] ) && ! empty( $shared_token ) ) {
+        $server_url = untrailingslashit( $cache_servers[ $domain ] );
+        $resp = wp_remote_get( add_query_arg( [
+            'domain' => $domain,
+            'token'  => $shared_token,
+        ], $server_url . '/wp-json/utm/v1/cache-urls' ), [
+            'timeout'   => 10,
+            'sslverify' => false,
+        ] );
+        if ( ! is_wp_error( $resp ) && 200 === wp_remote_retrieve_response_code( $resp ) ) {
+            $data = json_decode( wp_remote_retrieve_body( $resp ), true );
+            if ( ! empty( $data['success'] ) && isset( $data['urls'] ) ) {
+                set_transient( $cache_key, $data['urls'], 2 * MINUTE_IN_SECONDS );
+                return $data['urls'];
+            }
+        }
+        return [];
+    }
+
     $command = '/usr/local/bin/nginx-cache-purge ' . escapeshellarg( $domain ) . ' --list';
     $output_lines = array();
     $exit_code = 0;
@@ -464,6 +625,36 @@ function nginx_cache_get_stats( $domain, $force_refresh = false ) {
         }
     }
 
+    // Check if this domain's cache is on a remote proxy server
+    $config       = get_site_option( 'utm_cache_purge_config', [] );
+    $cache_servers = $config['remote_cache_servers'] ?? [];
+    $shared_token  = $config['auth_token'] ?? '';
+
+    if ( isset( $cache_servers[ $domain ] ) && ! empty( $shared_token ) ) {
+        $server_url = untrailingslashit( $cache_servers[ $domain ] );
+        $resp = wp_remote_get( add_query_arg( [
+            'domain' => $domain,
+            'token'  => $shared_token,
+        ], $server_url . '/wp-json/utm/v1/cache-stats' ), [
+            'timeout'   => 10,
+            'sslverify' => false,
+        ] );
+        if ( ! is_wp_error( $resp ) && 200 === wp_remote_retrieve_response_code( $resp ) ) {
+            $data = json_decode( wp_remote_retrieve_body( $resp ), true );
+            if ( ! empty( $data['success'] ) && isset( $data['stats'] ) ) {
+                $stats = $data['stats'];
+                // Attach total published count and percentage
+                $total_published         = nginx_cache_get_total_published();
+                $stats['total_public']   = $total_published;
+                $cached_files            = isset( $stats['Files'] ) ? intval( $stats['Files'] ) : 0;
+                $stats['percent']        = $total_published > 0 ? round( ( $cached_files / $total_published ) * 100, 1 ) : 0;
+                set_transient( $cache_key, $stats, 2 * MINUTE_IN_SECONDS );
+                return $stats;
+            }
+        }
+        return [ 'error' => 'Could not reach cache server' ];
+    }
+
     $output_lines = array();
     $exit_code = 0;
     exec(
@@ -519,6 +710,9 @@ function nginx_cache_ajax_stats() {
 
 /**
  * Auto-purge cache when a post is updated.
+ *
+ * Detects whether the nginx cache lives on this server or a remote proxy
+ * server. Local cache → exec(). Remote cache → HTTP POST to REST endpoint.
  */
 add_action( 'save_post', 'nginx_cache_auto_purge', 10, 3 );
 function nginx_cache_auto_purge( $post_id, $post, $update ) {
@@ -537,18 +731,75 @@ function nginx_cache_auto_purge( $post_id, $post, $update ) {
         return;
     }
 
-    // Purge the specific post URL + homepage (since homepage may show this post)
-    $urls_to_purge = array( get_permalink( $post_id ), home_url() );
-    foreach ( $urls_to_purge as $url ) {
-        $url_path = wp_parse_url( $url, PHP_URL_PATH );
-        if ( ! empty( $url_path ) ) {
-            exec(
-                'sudo /usr/local/bin/nginx-cache-purge ' . escapeshellarg( $domain ) . ' ' . escapeshellarg( $url_path ) . ' 2>&1',
-                $output_lines,
-                $exit_code
-            );
+    $config       = get_site_option( 'utm_cache_purge_config', [] );
+    $cache_servers = $config['remote_cache_servers'] ?? [];
+    $shared_token  = $config['auth_token'] ?? '';
+
+    $urls_to_purge = [ get_permalink( $post_id ), home_url() ];
+
+    // Check if this domain's cache lives on a remote proxy server
+    if ( isset( $cache_servers[ $domain ] ) && ! empty( $shared_token ) ) {
+        // ── Remote cache: HTTP purge ──────────────────────────────────
+        $server_url = untrailingslashit( $cache_servers[ $domain ] );
+        foreach ( $urls_to_purge as $url ) {
+            $url_path = wp_parse_url( $url, PHP_URL_PATH ) ?: '/';
+            wp_remote_post( $server_url . '/wp-json/utm/v1/cache-purge', [
+                'body'      => [
+                    'domain' => $domain,
+                    'url'    => $url_path,
+                    'token'  => $shared_token,
+                ],
+                'timeout'   => 10,
+                'blocking'  => false,   // fire-and-forget
+                'sslverify' => false,
+            ] );
+        }
+    } else {
+        // ── Local cache: direct exec() ────────────────────────────────
+        foreach ( $urls_to_purge as $url ) {
+            $url_path = wp_parse_url( $url, PHP_URL_PATH );
+            if ( ! empty( $url_path ) ) {
+                exec(
+                    'sudo /usr/local/bin/nginx-cache-purge ' . escapeshellarg( $domain ) . ' ' . escapeshellarg( $url_path ) . ' 2>&1',
+                    $output_lines,
+                    $exit_code
+                );
+            }
         }
     }
+}
+
+/**
+ * Save remote cache configuration via admin-post.
+ */
+add_action( 'admin_post_utm_cache_purge_config_save', 'utm_cache_purge_config_save_handler' );
+function utm_cache_purge_config_save_handler() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( 'Unauthorized' );
+    }
+    check_admin_referer( 'utm_cache_purge_config' );
+
+    $auth_token = isset( $_POST['auth_token'] ) ? sanitize_text_field( wp_unslash( $_POST['auth_token'] ) ) : '';
+
+    $remote_domains = isset( $_POST['remote_domain'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['remote_domain'] ) ) : [];
+    $remote_urls    = isset( $_POST['remote_url'] ) ? array_map( 'esc_url_raw', wp_unslash( $_POST['remote_url'] ) ) : [];
+
+    $remote_servers = [];
+    foreach ( $remote_domains as $i => $dom ) {
+        $dom = trim( $dom );
+        if ( empty( $dom ) || empty( $remote_urls[ $i ] ) ) {
+            continue;
+        }
+        $remote_servers[ $dom ] = $remote_urls[ $i ];
+    }
+
+    update_site_option( 'utm_cache_purge_config', [
+        'auth_token'         => $auth_token,
+        'remote_cache_servers' => $remote_servers,
+    ] );
+
+    wp_safe_redirect( add_query_arg( [ 'status' => 'success', 'msg' => urlencode( 'Remote cache configuration saved.' ) ], wp_get_referer() ) );
+    exit;
 }
 
 /**
@@ -609,6 +860,47 @@ function nginx_cache_render_page() {
                     <input type="text" name="pattern" placeholder="e.g. /admission/ or diploma" style="width:300px;margin-top:6px;">
                 </p>
                 <p><button type="submit" class="button button-primary" onclick="return confirm('Purge nginx cache? This may temporarily increase server load.');">Purge Cache</button></p>
+            </form>
+        </div>
+
+        <!-- Remote Cache Configuration -->
+        <div class="nginx-cache-purge-form" style="background:#fff;border-color:#ddd;">
+            <h2>Remote Cache Configuration</h2>
+            <p>Configure which domains have their nginx cache on a different server (e.g., <code>space.utm.my</code> PHP on www5, nginx on www2). The plugin will use HTTP purge when a post is saved instead of the local <code>exec()</code>.</p>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <?php wp_nonce_field( 'utm_cache_purge_config' ); ?>
+                <input type="hidden" name="action" value="utm_cache_purge_config_save">
+                <?php
+                $cfg = get_site_option( 'utm_cache_purge_config', [] );
+                $remote_servers = $cfg['remote_cache_servers'] ?? [];
+                $auth_token     = $cfg['auth_token'] ?? '';
+                ?>
+                <p>
+                    <label><strong>Auth Token:</strong><br>
+                    <input type="text" name="auth_token" value="<?php echo esc_attr( $auth_token ); ?>" style="width:300px;font-family:monospace;" placeholder="Shared secret for cross-server auth"></label>
+                    <span class="description"> — must match on every server instance</span>
+                </p>
+                <p><strong>Remote Cache Servers</strong> <span class="description">(domain → cache server URL)</span></p>
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:4px 8px;border-bottom:1px solid #ddd;width:40%;">Domain</th>
+                            <th style="text-align:left;padding:4px 8px;border-bottom:1px solid #ddd;width:40%;">Cache Server URL</th>
+                            <th style="text-align:left;padding:4px 8px;border-bottom:1px solid #ddd;width:20%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nc-remote-rows">
+                        <?php foreach ( $remote_servers as $dom => $url ) : ?>
+                        <tr>
+                            <td style="padding:4px 8px;"><input type="text" name="remote_domain[]" value="<?php echo esc_attr( $dom ); ?>" style="width:100%;font-family:monospace;"></td>
+                            <td style="padding:4px 8px;"><input type="url" name="remote_url[]" value="<?php echo esc_attr( $url ); ?>" style="width:100%;font-family:monospace;" placeholder="https://www2.utm.my"></td>
+                            <td style="padding:4px 8px;"><button type="button" class="button" onclick="this.closest('tr').remove()">✕ Remove</button></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p><button type="button" class="button" onclick="var t=document.getElementById('nc-remote-rows');var r=t.insertRow();r.innerHTML='<td style=\\\"padding:4px 8px;\\\"><input type=\\\"text\\\" name=\\\"remote_domain[]\\\" style=\\\"width:100%;font-family:monospace;\\\" placeholder=\\\"space.utm.my\\\"></td><td style=\\\"padding:4px 8px;\\\"><input type=\\\"url\\\" name=\\\"remote_url[]\\\" style=\\\"width:100%;font-family:monospace;\\\" placeholder=\\\"https://www2.utm.my\\\"></td><td style=\\\"padding:4px 8px;\\\"><button type=\\\"button\\\" class=\\\"button\\\" onclick=\\\"this.closest(\\'tr\\').remove()\\\">✕ Remove</button></td>';">+ Add Domain</button></p>
+                <p><button type="submit" class="button button-primary">Save Configuration</button></p>
             </form>
         </div>
 
