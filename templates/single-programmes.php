@@ -303,47 +303,6 @@ foreach ( $sections as $sk => $sv ) {
     line-height: 1.4;
 }
 
-/* --- Fees Row --- */
-.utm-fees-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 36px;
-}
-.utm-fee-card {
-    background: #fff;
-    border: 2px solid var(--slate-200);
-    border-radius: var(--radius-md);
-    padding: 24px;
-    text-align: center;
-}
-.utm-fee-card.is-local {
-    border-color: var(--utm-maroon);
-    background: linear-gradient(135deg, var(--utm-maroon-light), #fff);
-}
-.utm-fee-card.is-international {
-    border-color: #8B6914;
-    background: linear-gradient(135deg, #fffdf0, #fff);
-}
-.utm-fee-label {
-    font-size: 13px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    margin-bottom: 6px;
-}
-.utm-fee-amount {
-    font-size: 28px;
-    font-weight: 800;
-    color: var(--text-main);
-}
-.utm-fee-type {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 4px;
-}
-
 /* --- Codes Bar --- */
 .utm-codes-bar {
     display: flex;
@@ -575,6 +534,12 @@ foreach ( $sections as $sk => $sv ) {
     flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 28px;
+    align-items: center;
+}
+.utm-intake-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--slate-600);
 }
 .utm-intake-tag {
     display: inline-flex;
@@ -659,9 +624,6 @@ foreach ( $sections as $sk => $sv ) {
         grid-template-columns: 1fr 1fr;
         gap: 8px;
     }
-    .utm-fees-row {
-        grid-template-columns: 1fr;
-    }
     .utm-codes-bar {
         flex-direction: column;
         gap: 10px;
@@ -704,9 +666,6 @@ foreach ( $sections as $sk => $sv ) {
     .utm-single-hero h1 {
         font-size: 20px;
     }
-    .utm-fee-amount {
-        font-size: 22px;
-    }
     .utm-single-programme {
         padding: 0 16px 80px;
     }
@@ -740,6 +699,7 @@ foreach ( $sections as $sk => $sv ) {
         $both_closed = $eligible_local && $eligible_intl && $local_closed && $intl_closed;
     ?>
     <div class="utm-intake-status">
+        <span class="utm-intake-label">Offered To:</span>
         <?php if ( $both_closed ) : ?>
             <span class="utm-intake-tag is-not-offered">❌ Not Offered This Semester</span>
         <?php else : ?>
@@ -777,24 +737,19 @@ foreach ( $sections as $sk => $sv ) {
             <div class="utm-info-value"><?php echo $display( $key ); ?></div>
         </div>
         <?php endforeach; ?>
-    </div>
-
-    <!-- ============ FEES ============ -->
-    <?php if ( $has('programme_fees_malaysian') || $has('programme_fees_international') ) : ?>
-    <h2 class="utm-section-title">Fees</h2>
-    <div class="utm-fees-row">
-        <div class="utm-fee-card is-local">
-            <div class="utm-fee-label">Malaysian</div>
-            <div class="utm-fee-amount"><?php echo $has('programme_fees_malaysian') ? esc_html( $fields['programme_fees_malaysian'] ) : 'TBC'; ?></div>
-            <div class="utm-fee-type">Local Student Fees</div>
+        <?php if ( $eligible_local && $has('programme_fees_malaysian') ) : ?>
+        <div class="utm-info-card">
+            <div class="utm-info-label">Malaysian Fees</div>
+            <div class="utm-info-value"><?php echo esc_html( $fields['programme_fees_malaysian'] ); ?></div>
         </div>
-        <div class="utm-fee-card is-international">
-            <div class="utm-fee-label">International</div>
-            <div class="utm-fee-amount"><?php echo $has('programme_fees_international') ? esc_html( $fields['programme_fees_international'] ) : 'TBC'; ?></div>
-            <div class="utm-fee-type">International Student Fees</div>
+        <?php endif; ?>
+        <?php if ( $eligible_intl && $has('programme_fees_international') ) : ?>
+        <div class="utm-info-card">
+            <div class="utm-info-label">International Fees</div>
+            <div class="utm-info-value"><?php echo esc_html( $fields['programme_fees_international'] ); ?></div>
         </div>
+        <?php endif; ?>
     </div>
-    <?php endif; ?>
 
     <!-- ============ CODES ============ -->
     <?php if ( $has('programme_code_utm') || $has('programme_code_upu') || $has('nec_code') || $has('mqa_code') ) : ?>
