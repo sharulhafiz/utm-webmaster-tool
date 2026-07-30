@@ -735,17 +735,24 @@ foreach ( $sections as $sk => $sv ) {
     </div>
 
     <!-- ============ INTAKE STATUS ============ -->
-    <?php if ( $has('offered_to') || $has('offered_to_intake_malaysian') || $has('offered_to_intake_international') ) : ?>
+    <?php if ( $eligible_local || $eligible_intl ) : ?>
+    <?php
+        $both_closed = $eligible_local && $eligible_intl && $local_closed && $intl_closed;
+    ?>
     <div class="utm-intake-status">
-        <?php if ( $eligible_local ) : ?>
-            <span class="utm-intake-tag is-<?php echo $local_closed ? 'not-offered' : 'offered'; ?>">
-                <?php echo $local_closed ? '❌' : '✅'; ?> Malaysian: <?php echo $local_ok ? 'Intake Open' : ( $local_closed ? 'Not Available' : 'TBC' ); ?>
-            </span>
-        <?php endif; ?>
-        <?php if ( $eligible_intl ) : ?>
-            <span class="utm-intake-tag is-<?php echo $intl_closed ? 'not-offered' : 'offered'; ?>">
-                <?php echo $intl_closed ? '❌' : '✅'; ?> International: <?php echo $intl_ok ? 'Intake Open' : ( $intl_closed ? 'Not Available' : 'TBC' ); ?>
-            </span>
+        <?php if ( $both_closed ) : ?>
+            <span class="utm-intake-tag is-not-offered">❌ Not Offered This Semester</span>
+        <?php else : ?>
+            <?php if ( $eligible_local ) : ?>
+                <span class="utm-intake-tag is-<?php echo $local_closed ? 'not-offered' : 'offered'; ?>">
+                    <?php echo $local_closed ? '❌' : '✅'; ?> Malaysian
+                </span>
+            <?php endif; ?>
+            <?php if ( $eligible_intl ) : ?>
+                <span class="utm-intake-tag is-<?php echo $intl_closed ? 'not-offered' : 'offered'; ?>">
+                    <?php echo $intl_closed ? '❌' : '✅'; ?> International
+                </span>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
     <?php endif; ?>
