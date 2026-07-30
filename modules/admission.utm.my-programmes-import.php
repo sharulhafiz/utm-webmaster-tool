@@ -95,8 +95,6 @@ function utm_admission_programmes_import_alias_map() {
         'programme_director_coordinator' => 'program_directorcoordinator',
         'program_code'                 => 'program_code_utm',
         'programme_code'               => 'program_code_utm',
-        'fees_local'                   => 'fees_-_local',
-        'fees_international'           => 'fees_-_international',
     );
 }
 
