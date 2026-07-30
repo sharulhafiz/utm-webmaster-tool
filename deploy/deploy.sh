@@ -18,6 +18,7 @@
 #   ./deploy/deploy.sh --dry-run             # Dry run (list files)
 #   ./deploy/deploy.sh --list-sites          # List all sites
 #   ./deploy/deploy.sh --verify-only         # Check version endpoints
+#   ./deploy/deploy.sh --no-tunnel --target registrar   # No SOCKS5 (direct from inside network)
 # ============================================================================
 set -euo pipefail
 
@@ -32,10 +33,31 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Check for --no-tunnel flag and strip it from args
+NO_TUNNEL=false
+PASSTHROUGH_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--no-tunnel" ]; then
+        NO_TUNNEL=true
+    else
+        PASSTHROUGH_ARGS+=("$arg")
+    fi
+done
+set -- "${PASSTHROUGH_ARGS[@]}"
+
 echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║   UTM Webmaster Tool — WSL Deploy                       ║${NC}"
+echo -e "${CYAN}║   UTM Webmaster Tool — Deploy                           ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
+
+if [ "$NO_TUNNEL" = true ]; then
+    echo -e "${GREEN}[OK] --no-tunnel: deploying directly (no SOCKS5 proxy)${NC}"
+    echo ""
+    echo -e "${CYAN}[RUN] $PYTHON deploy/deploy.py $*${NC}"
+    echo ""
+    cd "$REPO_ROOT"
+    exec "$PYTHON" deploy/deploy.py "$@"
+fi
 
 # ---- Check prerequisites ------------------------------------------------
 
