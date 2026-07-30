@@ -796,12 +796,12 @@ foreach ( $sections as $sk => $sv ) {
         <div class="utm-apply-row">
             <?php if ( $has_upu ) : ?>
             <a href="<?php echo esc_url( $url_upu ); ?>" class="utm-apply-btn" target="_blank" rel="noopener">
-                UPU &rarr;
+                Malaysian (UPU) &rarr;
             </a>
             <?php endif; ?>
             <?php if ( $has_smart ) : ?>
             <a href="<?php echo esc_url( $url_smart ); ?>" class="utm-apply-btn" target="_blank" rel="noopener">
-                SMARt &rarr;
+                Malaysian (SMARt) &rarr;
             </a>
             <?php endif; ?>
             <?php if ( $has_intl ) : ?>
