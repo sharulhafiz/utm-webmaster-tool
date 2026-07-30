@@ -113,9 +113,18 @@ $intl_ok  = $eligible_intl  && ( $has_intl_intake  ? $intake_intl_open  : true )
 $local_closed = $eligible_local && $has_local_intake && ! $intake_local_open;
 $intl_closed  = $eligible_intl  && $has_intl_intake  && ! $intake_intl_open;
 
-// Build apply URLs — both local and international use smart.utm.my
-$url_local = 'https://smart.utm.my/admission/';
+// Build apply URLs
+$url_upu  = 'https://intake.utm.my/';
+$url_smart = 'https://smart.utm.my/admission/';
 $url_intl  = 'https://smart.utm.my/admission/';
+
+// Route availability based on Sept Intake columns
+$has_upu   = $eligible_local && $local_ok && $has('sept_intake_malaysian_upu');
+$has_smart = $eligible_local && $local_ok && $has('sept_intake_malaysian_utm_smart');
+$has_intl  = $eligible_intl && $intl_ok;
+
+// Has any route available
+$has_any_route = $has_upu || $has_smart || $has_intl;
 // ---------- Content sections for accordion ----------
 $sections = array(
     'about_the_programme'   => array( 'About the Programme', 'about_the_programme' ),
@@ -429,35 +438,6 @@ foreach ( $sections as $sk => $sv ) {
     gap: 12px;
     justify-content: center;
 }
-.utm-apply-ref {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid rgba(255,255,255,0.2);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-    align-items: center;
-}
-.utm-ref-label {
-    color: rgba(255,255,255,0.6);
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-right: 4px;
-}
-.utm-ref-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    background: rgba(255,255,255,0.12);
-    color: rgba(255,255,255,0.9);
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    line-height: 1.4;
-}
 .utm-apply-btn {
     display: inline-flex;
     align-items: center;
@@ -475,15 +455,6 @@ foreach ( $sections as $sk => $sv ) {
 .utm-apply-btn:hover {
     background: transparent;
     color: #fff;
-}
-.utm-apply-btn.is-outline {
-    background: transparent;
-    color: #fff;
-    border-color: rgba(255,255,255,0.5);
-}
-.utm-apply-btn.is-outline:hover {
-    background: rgba(255,255,255,0.1);
-    border-color: #fff;
 }
 .utm-apply-tbc {
     color: rgba(255,255,255,0.7);
@@ -823,32 +794,25 @@ foreach ( $sections as $sk => $sv ) {
         <h2>Ready to Join UTM?</h2>
         <p>Take the next step towards your future — apply now for this programme.</p>
         <div class="utm-apply-row">
-            <?php if ( $local_ok ) : ?>
-            <a href="<?php echo esc_url( $url_local ); ?>" class="utm-apply-btn" target="_blank" rel="noopener">
-                Apply (Malaysian) &rarr;
+            <?php if ( $has_upu ) : ?>
+            <a href="<?php echo esc_url( $url_upu ); ?>" class="utm-apply-btn" target="_blank" rel="noopener">
+                Malaysian &rarr;
             </a>
             <?php endif; ?>
-            <?php if ( $intl_ok ) : ?>
-            <a href="<?php echo esc_url( $url_intl ); ?>" class="utm-apply-btn is-outline" target="_blank" rel="noopener">
-                Apply (International) &rarr;
+            <?php if ( $has_smart ) : ?>
+            <a href="<?php echo esc_url( $url_smart ); ?>" class="utm-apply-btn" target="_blank" rel="noopener">
+                Malaysian &rarr;
             </a>
             <?php endif; ?>
-            <?php if ( ! $local_ok && ! $intl_ok && ( $eligible_local || $eligible_intl ) ) : ?>
-            <p class="utm-apply-tbc">Intake details coming soon — check back later.</p>
+            <?php if ( $has_intl ) : ?>
+            <a href="<?php echo esc_url( $url_intl ); ?>" class="utm-apply-btn" target="_blank" rel="noopener">
+                International &rarr;
+            </a>
+            <?php endif; ?>
+            <?php if ( ! $has_any_route && ( $eligible_local || $eligible_intl ) ) : ?>
+            <p class="utm-apply-tbc">This programme is not offered for the upcoming semester. Please check back later for updates.</p>
             <?php endif; ?>
         </div>
-
-        <?php if ( $has('sept_intake_malaysian_upu') || $has('sept_intake_malaysian_utm_smart') ) : ?>
-        <div class="utm-apply-ref">
-            <span class="utm-ref-label">Sept intake entry routes:</span>
-            <?php if ( $has('sept_intake_malaysian_upu') ) : ?>
-                <span class="utm-ref-badge">🎓 UPU: <?php echo esc_html( $fields['sept_intake_malaysian_upu'] ); ?></span>
-            <?php endif; ?>
-            <?php if ( $has('sept_intake_malaysian_utm_smart') ) : ?>
-                <span class="utm-ref-badge">📋 SMARt: <?php echo esc_html( $fields['sept_intake_malaysian_utm_smart'] ); ?></span>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
     </div>
 
     <!-- ============ ADDITIONAL INFO ============ -->
@@ -882,15 +846,26 @@ foreach ( $sections as $sk => $sv ) {
 
 </main>
 
+<?php
+// First available route for sticky bar
+$sticky_url = '';
+if ( $has_upu ) {
+    $sticky_url = $url_upu;
+} elseif ( $has_smart ) {
+    $sticky_url = $url_smart;
+} elseif ( $has_intl ) {
+    $sticky_url = $url_intl;
+}
+?>
 <!-- Sticky Mobile Apply Bar -->
+<?php if ( $sticky_url ) : ?>
 <div class="utm-sticky-apply" id="utm-sticky-apply">
     <div class="utm-sticky-inner">
         <span class="utm-sticky-title"><?php echo esc_html( $fields['program_name'] ?: get_the_title() ); ?></span>
-        <?php if ( $local_ok || $intl_ok ) : ?>
-        <a href="<?php echo esc_url( $local_ok ? $url_local : $url_intl ); ?>" class="utm-sticky-apply-btn" target="_blank" rel="noopener">Apply Now &rarr;</a>
-        <?php endif; ?>
+        <a href="<?php echo esc_url( $sticky_url ); ?>" class="utm-sticky-apply-btn" target="_blank" rel="noopener">Apply Now &rarr;</a>
     </div>
 </div>
+<?php endif; ?>
 
 <script>
 (function() {
