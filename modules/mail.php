@@ -4,7 +4,7 @@ add_action('phpmailer_init', function($phpmailer) {
     // Don't use SMTP - use system sendmail which is configured with msmtp in the container
     $phpmailer->isMail();
     $phpmailer->Mailer = 'sendmail';
-    $phpmailer->Sendmail = '/usr/bin/msmtp -t';
+    $phpmailer->Sendmail = 'php /usr/local/bin/wp-sendmail -t -i';
 
     // Log all outgoing emails
     add_action('wp_mail_succeeded', function() use ($phpmailer) {
@@ -33,7 +33,7 @@ add_action('phpmailer_init', function($phpmailer) {
         }
         $to = $to_list ? implode(',', $to_list) : 'unknown';
         $log_message = sprintf(
-            "[%s] SENT: To: %s | Subject: %s | Via: msmtp\n",
+            "[%s] SENT: To: %s | Subject: %s | Via: wp-sendmail\n",
             date('Y-m-d H:i:s'),
             $to,
             $phpmailer->Subject
