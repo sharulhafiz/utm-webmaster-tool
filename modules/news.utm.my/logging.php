@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param string $message Error message to log
  */
 function utm_news_log_error( $message ) {
-    $log_file = dirname( __DIR__ ) . '/news.utm.my-errors.log';
+    $log_file = trailingslashit( WP_CONTENT_DIR ) . 'news.utm.my-errors.log';
     $timestamp = date( 'Y-m-d H:i:s' );
     $log_entry = "[{$timestamp}] ERROR: {$message}\n";
     

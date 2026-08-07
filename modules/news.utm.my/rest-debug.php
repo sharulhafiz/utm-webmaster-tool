@@ -30,7 +30,7 @@ add_action( 'rest_api_init', function() {
  * @return WP_REST_Response|WP_Error
  */
 function utm_news_get_debug_log( $request ) {
-    $log_file = dirname( __DIR__ ) . '/news.utm.my-errors.log';
+    $log_file = trailingslashit( WP_CONTENT_DIR ) . 'news.utm.my-errors.log';
     
     // Get number of lines (default last 100)
     $lines = isset( $request['lines'] ) ? intval( $request['lines'] ) : 100;
