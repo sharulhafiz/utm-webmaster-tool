@@ -769,9 +769,33 @@ class UTMLoginLogger {
     }
 
     public function check_login($user_login, $user) {
-        // Send alert for every login (password reset removed per SSO Improvement Plan Phase 1.3)
+        // SSO authorization gate (INC-2026-08-08 hardening):
+        // A legitimate SSO login ALWAYS has the email + sso_key cookies set
+        // (set in sso_validate_pin() / utm_sso() before wp_set_auth_cookie).
+        // Any login WITHOUT valid SSO cookies is a non-SSO login (password-only
+        // or credential stuffing) -> kick immediately + alert the admin.
+        $has_email_cookie = isset( $_COOKIE['email'] );
+        $has_key_cookie   = isset( $_COOKIE['sso_key'] );
+        $cookie_email     = $has_email_cookie ? sanitize_email( wp_unslash( $_COOKIE['email'] ) ) : '';
+        $email_matches    = $cookie_email === $user->user_email;
+
+        if ( ! $has_email_cookie || ! $has_key_cookie || ! $email_matches ) {
+            // Non-SSO login blocked: alert admin, then force logout.
+            $message = "ALERT: A login WITHOUT valid UTM SSO cookies was blocked and logged out.\n\n"
+                     . "Username: " . $user_login . "\n"
+                     . "Email: " . $user->user_email . "\n"
+                     . "This user did not authenticate via the UTM SSO module. Their session has been terminated.";
+            $this->send_alert( $message, 'login', $user );
+
+            wp_logout();
+            sso_clear_cookies();
+            wp_redirect( wp_login_url( home_url( $_SERVER['REQUEST_URI'] ) ) );
+            exit;
+        }
+
+        // Legitimate SSO login: send the standard alert.
         $message = "Alert: A login was made.";
-        $this->send_alert($message, 'login', $user);
+        $this->send_alert( $message, 'login', $user );
     }
 
     private function send_email($to, $subject, $message) {
