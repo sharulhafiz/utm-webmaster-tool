@@ -636,7 +636,22 @@ function utm_sso(){
             $cookie_expiry = time() + 1209600;
             sso_set_shared_cookie('email', $email, $cookie_expiry, false);
             sso_set_shared_cookie('sso_key', $sso_key, $cookie_expiry, true);
-            
+
+            // Purge stale WP auth cookie variants (incl. legacy host-only cookies that
+            // wp_clear_auth_cookie() cannot reach) so a stale cookie can never coexist
+            // with the fresh one - prevents the wp-admin <-> wp-login redirect loop
+            // caused by duplicate-cookie piles (host-only vs Domain vs .domain).
+            wp_clear_auth_cookie();
+            $purge_paths = array_unique( array( COOKIEPATH, SITECOOKIEPATH, ADMIN_COOKIE_PATH ) );
+            foreach ( array( 'wordpress_logged_in_', 'wordpress_sec_' ) as $purge_prefix ) {
+                $purge_name = $purge_prefix . COOKIEHASH;
+                foreach ( $purge_paths as $purge_path ) {
+                    setcookie( $purge_name, ' ', time() - 3600, $purge_path );
+                    setcookie( $purge_name, ' ', time() - 3600, $purge_path, '' );
+                    setcookie( $purge_name, ' ', time() - 3600, $purge_path, '.' . $_SERVER['HTTP_HOST'] );
+                }
+            }
+
             wp_set_auth_cookie($user->ID, true);
             // Record last login for cookie-based SSO auto-login
             update_user_meta($user->ID, 'last_login', time());
