@@ -789,6 +789,16 @@ class UTMLoginLogger {
         // (set in sso_validate_pin() / utm_sso() before wp_set_auth_cookie).
         // Any login WITHOUT valid SSO cookies is a non-SSO login (password-only
         // or credential stuffing) -> kick immediately + alert the admin.
+        //
+        // Per-site opt-out (2026-08-13): sites that do NOT use UTM SSO (they
+        // have their own login method) must be excluded from this gate or every
+        // password login loops (login -> gate kick -> redirect -> login).
+        // Set option 'sso_gate_enabled' = '0' on the site (e.g. research.utm.my
+        // network) to disable the kick for that site. Default '1' = gate ON.
+        if ( '0' === get_option( 'sso_gate_enabled', '1' ) ) {
+            return;
+        }
+
         $has_email_cookie = isset( $_COOKIE['email'] );
         $has_key_cookie   = isset( $_COOKIE['sso_key'] );
         $cookie_email     = $has_email_cookie ? sanitize_email( wp_unslash( $_COOKIE['email'] ) ) : '';
