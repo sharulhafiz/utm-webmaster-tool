@@ -18,6 +18,20 @@ if ( ! function_exists('defined') || ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Per-site module opt-out (2026-08-13):
+ * Sites that do NOT use UTM SSO (they run their own login method) must
+ * disable the entire SSO module — auto-login, PIN form, session validation
+ * AND the check_login gate — otherwise every password login on those sites
+ * loops (login -> gate kick -> redirect -> login).
+ *
+ * Set option 'sso_gate_enabled' = '0' on the site (e.g. the research.utm.my
+ * network) to disable the module for that site. Default '1' = module ON.
+ */
+if ( '0' === get_option( 'sso_gate_enabled', '1' ) ) {
+    return;
+}
+
+/**
  * Detect if current request should be treated as HTTPS (proxy-aware).
  *
  * @return bool
