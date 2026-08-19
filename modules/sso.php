@@ -18,20 +18,6 @@ if ( ! function_exists('defined') || ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Per-site module opt-out (2026-08-13):
- * Sites that do NOT use UTM SSO (they run their own login method) must
- * disable the entire SSO module — auto-login, PIN form, session validation
- * AND the check_login gate — otherwise every password login on those sites
- * loops (login -> gate kick -> redirect -> login).
- *
- * Set option 'sso_gate_enabled' = '0' on the site (e.g. the research.utm.my
- * network) to disable the module for that site. Default '1' = module ON.
- */
-if ( '0' === get_option( 'sso_gate_enabled', '1' ) ) {
-    return;
-}
-
-/**
  * Detect if current request should be treated as HTTPS (proxy-aware).
  *
  * @return bool
@@ -798,21 +784,6 @@ class UTMLoginLogger {
     }
 
     public function check_login($user_login, $user) {
-        // SSO authorization gate (INC-2026-08-08 hardening):
-        // A legitimate SSO login ALWAYS has the email + sso_key cookies set
-        // (set in sso_validate_pin() / utm_sso() before wp_set_auth_cookie).
-        // Any login WITHOUT valid SSO cookies is a non-SSO login (password-only
-        // or credential stuffing) -> kick immediately + alert the admin.
-        //
-        // Per-site opt-out (2026-08-13): sites that do NOT use UTM SSO (they
-        // have their own login method) must be excluded from this gate or every
-        // password login loops (login -> gate kick -> redirect -> login).
-        // Set option 'sso_gate_enabled' = '0' on the site (e.g. research.utm.my
-        // network) to disable the kick for that site. Default '1' = gate ON.
-        if ( '0' === get_option( 'sso_gate_enabled', '1' ) ) {
-            return;
-        }
-
         $has_email_cookie = isset( $_COOKIE['email'] );
         $has_key_cookie   = isset( $_COOKIE['sso_key'] );
         $cookie_email     = $has_email_cookie ? sanitize_email( wp_unslash( $_COOKIE['email'] ) ) : '';
