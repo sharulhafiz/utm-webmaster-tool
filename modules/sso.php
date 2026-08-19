@@ -750,6 +750,36 @@ function rename_utm_wp_plugin() {
     }
 }
 
+/**
+ * Detect if this login is from a non-browser context (CLI, AJAX, REST, XML-RPC).
+ * These contexts are legitimate and should bypass the SSO cookie gate.
+ *
+ * @return bool True if login is from a programmatic/non-browser context.
+ */
+function sso_is_browser_login() {
+    // WP-CLI: always bypass
+    if ( defined( 'WP_CLI' ) && WP_CLI ) {
+        return false;
+    }
+    // PHP CLI/CGI: no web request
+    if ( PHP_SAPI === 'cli' || PHP_SAPI === 'cli-server' ) {
+        return false;
+    }
+    // WordPress AJAX handler
+    if ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) {
+        return false;
+    }
+    // WordPress REST API
+    if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+        return false;
+    }
+    // XML-RPC
+    if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+        return false;
+    }
+    return true;
+}
+
 class UTMLoginLogger {
 
     private $admin_email;
@@ -784,13 +814,27 @@ class UTMLoginLogger {
     }
 
     public function check_login($user_login, $user) {
+        // Bypass gate for non-browser contexts (CLI, AJAX, REST, XML-RPC).
+        // These are legitimate programmatic logins that don't have SSO cookies.
+        if ( ! sso_is_browser_login() ) {
+            $context = 'CLI';
+            if ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) $context = 'AJAX';
+            elseif ( defined( 'REST_REQUEST' ) && REST_REQUEST ) $context = 'REST';
+            elseif ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) $context = 'XML-RPC';
+            $message = "Info: Non-browser login allowed ({$context}).\n\n"
+                     . "Username: " . $user_login . "\n"
+                     . "Email: " . $user->user_email;
+            $this->send_alert( $message, 'login', $user );
+            return;
+        }
+
         $has_email_cookie = isset( $_COOKIE['email'] );
         $has_key_cookie   = isset( $_COOKIE['sso_key'] );
         $cookie_email     = $has_email_cookie ? sanitize_email( wp_unslash( $_COOKIE['email'] ) ) : '';
         $email_matches    = $cookie_email === $user->user_email;
 
         if ( ! $has_email_cookie || ! $has_key_cookie || ! $email_matches ) {
-            // Non-SSO login blocked: alert admin, then force logout.
+            // Non-SSO browser login blocked: alert admin, then force logout.
             $message = "ALERT: A login WITHOUT valid UTM SSO cookies was blocked and logged out.\n\n"
                      . "Username: " . $user_login . "\n"
                      . "Email: " . $user->user_email . "\n"
