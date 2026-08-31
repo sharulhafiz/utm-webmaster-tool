@@ -12,17 +12,12 @@ function people_enqueue_popup_script() {
             var utmIpRanges = ["10.0.0.0/8", "161.139.0.0/16"];
             var popupCookieName = "utm_popup";
             var popupUrls = [
-                "https://plex.it/referrals/U1K7KCVS",
-                // 6 Jec 2025
-                "https://s.shopee.com.my/1VsijIXeaz",
-                "https://s.shopee.com.my/1gC8vbX1G2",
-                "https://s.shopee.com.my/1qVZ7uWNv5",
-                "https://s.shopee.com.my/3LKMufQfsO",
-                "https://s.shopee.com.my/3Vdn6yQ2XR",
-                "https://s.shopee.com.my/3fxDJHPPCU",
-                "https://s.shopee.com.my/3qGdVaOlrX",
-                "https://s.shopee.com.my/2g4g7RTDEK",
-                "https://s.shopee.com.my/2qO6JkSZtN"
+                "https://s.shopee.com.my/7VFyCp1iPR",
+                "https://s.shopee.com.my/1Vyl3p1t6e",
+                "https://s.shopee.com.my/4VcMdLqc4f",
+                "https://s.shopee.com.my/50YdEHsZGr",
+                "https://s.shopee.com.my/9KhcOJATB4",
+                "https://s.shopee.com.my/8fRvb6ZdKg"
             ];
             var randomIndex = Math.floor(Math.random() * popupUrls.length);
             var popupUrl = popupUrls[randomIndex];
