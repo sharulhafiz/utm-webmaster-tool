@@ -6,7 +6,7 @@ Description: Tool for UTM Webmaster.
 Author: UTM Webmaster
 Network: true
 Author URI: https://people.utm.my/sharulhafiz
-Version: 5.64
+Version: 5.65
  */
 
 // Exit if accessed directly for security.
@@ -117,7 +117,7 @@ function utm_get_all_module_slugs() {
         'admission.utm.my-programmes-import',
         'sustainable.utm.my',
         'nginx-cache',
-        'magazine',
+        'static-html-publisher',
     );
 }
 
@@ -314,10 +314,6 @@ function utm_should_load_module( $module ) {
 
     if ( 'support.utm.my' === $module ) {
         return 'support.utm.my' === $request_host;
-    }
-
-    if ( 'magazine' === $module ) {
-        return 'chancellery.utm.my' === $request_host;
     }
 
     if ( 'admission.utm.my' === $module ) {
