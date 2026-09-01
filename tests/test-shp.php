@@ -74,6 +74,14 @@ if ( ! function_exists( 'current_time' ) ) {
         return $gmt ? gmdate( 'Y-m-d H:i:s' ) : date( 'Y-m-d H:i:s' );
     }
 }
+if ( ! function_exists( 'wp_upload_dir' ) ) {
+    function wp_upload_dir( $time = '' ) {
+        return [
+            'basedir' => WP_CONTENT_DIR . '/uploads/sites/1',
+            'baseurl' => '',
+        ];
+    }
+}
 
 // Load module functions directly.
 $repo_root = dirname( __DIR__ );

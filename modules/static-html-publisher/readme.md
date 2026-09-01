@@ -77,7 +77,7 @@ Uploaded JavaScript is treated as trusted publisher content for the MVP.
 ## Storage layout
 
 ```
-wp-content/static-packages/
+wp-content/uploads/sites/{site_id}/static-packages/
 ├── 42/                   ← active package for Page ID 42
 │   ├── index.html
 │   ├── style.css
@@ -85,7 +85,7 @@ wp-content/static-packages/
 └── 42__staging_abc123/   ← temporary staging (cleaned up automatically)
 ```
 
-Page ID is the stable identity — changing the Page's title, slug, or parent does not affect stored files.
+Uses the standard WordPress multisite uploads directory (`wp_upload_dir()['basedir']`), so each site gets its own isolated storage under `sites/{site_id}/`. Page ID is the stable identity — changing the Page's title, slug, or parent does not affect stored files.
 
 ## URL model
 
@@ -115,8 +115,8 @@ The PHP fallback in `template.php` handles asset serving until this is deployed.
 ### Phase 1 — Module merge (current)
 
 1. Merge module to `utm-webmaster-tool` main branch.
-2. Sync to swarm: `rsync -av --delete /opt/apps/utm-webmaster-tool/ /data/plugins/utm-webmaster-tool/`
-3. Create the `wp-content/static-packages/` directory on the site's NFS share (writable by wwwdata).
+1. Sync plugin to swarm: `rsync -av --delete /opt/apps/utm-webmaster-tool/ /data/plugins/utm-webmaster-tool/`
+2. Ensure `wp-content/uploads/sites/{site_id}/` exists and is writable by wwwdata (PHP's `wp_mkdir_p()` will create `static-packages/` on first upload)
 4. Visit Settings → Permalinks → Save to flush rewrite rules.
 5. Test: create a Page, upload a ZIP, verify the content appears.
 

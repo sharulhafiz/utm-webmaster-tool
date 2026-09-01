@@ -38,7 +38,8 @@ define( 'UTM_SHP_META_WAS_ACTIVE_BEFORE_TRASH', UTM_SHP_META_PREFIX . 'was_activ
  * @return string Absolute path.
  */
 function utm_shp_packages_dir() {
-    return WP_CONTENT_DIR . '/static-packages';
+    $upload_dir = wp_upload_dir();
+    return $upload_dir['basedir'] . '/static-packages';
 }
 
 /**

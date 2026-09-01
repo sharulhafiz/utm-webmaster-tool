@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return int|false Page ID or false.
  */
 function utm_shp_current_page_id() {
-    if ( is_page() && ! is singular() ) {
+    if ( is_page() && ! is_singular() ) {
         return false;
     }
 
