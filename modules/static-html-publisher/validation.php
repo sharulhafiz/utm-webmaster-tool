@@ -160,6 +160,52 @@ function utm_shp_validate_zip( $zip_path, $limits = [] ) {
 }
 
 /**
+ * Validate a single HTML file upload.
+ *
+ * Checks file size and scans for server-side code or dangerous patterns.
+ * Returns an array of human-readable error strings. Empty array = valid.
+ *
+ * @param  string $html_path Absolute filesystem path to the HTML file.
+ * @param  array  $limits    Optional overrides: max_bytes.
+ * @return string[]           Error messages; empty on success.
+ */
+function utm_shp_validate_html( $html_path, $limits = [] ) {
+    $errors   = [];
+    $max_bytes = $limits['max_bytes'] ?? 10 * 1024 * 1024; // 10 MB
+
+    if ( ! file_exists( $html_path ) ) {
+        return [ 'HTML file not found.' ];
+    }
+
+    $size = filesize( $html_path );
+    if ( 0 === $size ) {
+        return [ 'HTML file is empty.' ];
+    }
+    if ( $size > $max_bytes ) {
+        return [ sprintf( 'HTML file exceeds size limit (%s).', size_format( $size ) ) ];
+    }
+
+    $content = file_get_contents( $html_path );
+    if ( false === $content ) {
+        return [ 'Could not read HTML file.' ];
+    }
+
+    // Block server-executable code.
+    $blocked = [
+        [ '#<\?php#i',                          'PHP code' ],
+        [ '#<\?=#i',                             'PHP short echo' ],
+        [ '#<\?[^h]#i',                          'PHP tag' ],
+    ];
+    foreach ( $blocked as [$pat, $label] ) {
+        if ( preg_match( $pat, $content ) ) {
+            $errors[] = 'Blocked content (' . $label . ').';
+        }
+    }
+
+    return $errors;
+}
+
+/**
  * Post-extraction symlink scan.
  *
  * Walks the extracted directory and detects any symlinks that slipped

@@ -180,16 +180,28 @@ function utm_shp_ajax_upload() {
         wp_send_json_error( [ 'message' => 'Failed to save uploaded file.' ] );
     }
 
-    // 2. Validate ZIP.
-    $errors = utm_shp_validate_zip( $tmp );
-    if ( ! empty( $errors ) ) {
-        @unlink( $tmp );
-        wp_send_json_error( [ 'message' => 'Validation failed.', 'errors' => $errors ] );
-    }
+    // Detect file type by extension.
+    $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
 
-    // 3. Extract and activate.
-    $warnings = utm_shp_activate( $tmp, $post_id, $file['name'] );
-    @unlink( $tmp );
+    if ( in_array( $ext, [ 'html', 'htm' ], true ) ) {
+        // ── HTML file path ──
+        $errors = utm_shp_validate_html( $tmp );
+        if ( ! empty( $errors ) ) {
+            @unlink( $tmp );
+            wp_send_json_error( [ 'message' => 'Validation failed.', 'errors' => $errors ] );
+        }
+        $warnings = utm_shp_activate_html( $tmp, $post_id, $file['name'] );
+        @unlink( $tmp );
+    } else {
+        // ── ZIP file path ──
+        $errors = utm_shp_validate_zip( $tmp );
+        if ( ! empty( $errors ) ) {
+            @unlink( $tmp );
+            wp_send_json_error( [ 'message' => 'Validation failed.', 'errors' => $errors ] );
+        }
+        $warnings = utm_shp_activate( $tmp, $post_id, $file['name'] );
+        @unlink( $tmp );
+    }
 
     if ( ! empty( $warnings ) ) {
         // Warnings are non-fatal (extraction succeeded).

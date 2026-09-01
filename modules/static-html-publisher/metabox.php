@@ -52,10 +52,10 @@ function utm_shp_metabox_render( $post ) {
         <?php endif; ?>
 
         <div id="shp-upload-area" class="shp-upload-area">
-            <input type="file" id="shp-zip-input" name="shp_zip" accept=".zip" class="shp-file-input">
+            <input type="file" id="shp-zip-input" name="shp_zip" accept=".zip,.html,.htm" class="shp-file-input">
             <label for="shp-zip-input" class="shp-file-label">
                 <span class="dashicons dashicons-upload"></span>
-                Choose ZIP or drag here
+                Choose file or drag here
             </label>
         </div>
 

@@ -207,6 +207,49 @@ function utm_shp_cleanup_staging( $page_id ) {
 // ── Extraction & activation ──────────────────────────────────────
 
 /**
+ * Activate a single HTML file as a static package.
+ *
+ * Copies the HTML file as index.html into the active directory for the Page.
+ * If an active directory already exists, it is replaced entirely.
+ *
+ * @param  string $html_path Absolute path to validated HTML file.
+ * @param  int    $page_id   WordPress Page ID.
+ * @param  string $file_name Original upload filename (for metadata).
+ * @return string[]           Warnings; empty on success.
+ */
+function utm_shp_activate_html( $html_path, $page_id, $file_name ) {
+    $base = utm_shp_packages_dir();
+    if ( ! is_dir( $base ) ) {
+        wp_mkdir_p( $base );
+    }
+
+    // Clean up stale staging.
+    utm_shp_cleanup_staging( $page_id );
+
+    // Remove old active directory if present.
+    $active_dir = utm_shp_package_dir( $page_id );
+    if ( is_dir( $active_dir ) ) {
+        utm_shp_rmdir_recursive( $active_dir );
+    }
+
+    // Create fresh active directory and copy the file as index.html.
+    if ( ! @mkdir( $active_dir, 0755, true ) ) {
+        return [ 'Failed to create package directory.' ];
+    }
+
+    $dest = $active_dir . '/index.html';
+    if ( ! copy( $html_path, $dest ) ) {
+        utm_shp_rmdir_recursive( $active_dir );
+        return [ 'Failed to copy HTML file to package directory.' ];
+    }
+
+    // Update post meta.
+    utm_shp_set_meta( $page_id, $file_name, 1, filesize( $dest ) );
+
+    return [];
+}
+
+/**
  * Extract a validated ZIP into a staging directory, then activate.
  *
  * Flow:
