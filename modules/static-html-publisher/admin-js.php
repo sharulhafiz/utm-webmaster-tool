@@ -18,7 +18,8 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
         return;
     }
 
-    wp_enqueue_script( 'shp-admin', false, [], UTM_PLUGIN_VERSION, true );
+    wp_register_script( 'shp-admin', false, [], UTM_PLUGIN_VERSION, true );
+    wp_enqueue_script( 'shp-admin' );
     wp_add_inline_script( 'shp-admin', '
     (function(){
         function init() {
