@@ -20,12 +20,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 function utm_shp_current_page_id() {
     // Must be a singular page view (not archive, not search).
-    if ( ! is_singular( 'page' ) ) {
+    if ( ! is_singular( UTM_SHP_POST_TYPES ) ) {
         return false;
     }
 
     $post = get_queried_object();
-    if ( ! $post || 'page' !== $post->post_type ) {
+    if ( ! $post || ! utm_shp_is_supported_type( $post->post_type ) ) {
         return false;
     }
 

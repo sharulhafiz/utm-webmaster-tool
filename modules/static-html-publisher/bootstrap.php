@@ -21,6 +21,20 @@ require_once __DIR__ . '/metabox.php';
 require_once __DIR__ . '/admin-js.php';
 require_once __DIR__ . '/template.php';
 
+// Supported post types.
+define( 'UTM_SHP_POST_TYPES', [ 'page', 'post' ] );
+
+/**
+ * Check if a post type is supported for static HTML publishing.
+ */
+function utm_shp_is_supported_type( $post_type = null ) {
+    if ( ! $post_type ) {
+        $post = get_queried_object();
+        $post_type = $post ? $post->post_type : null;
+    }
+    return in_array( $post_type, UTM_SHP_POST_TYPES, true );
+}
+
 /**
  * Register custom rewrite rules and query vars for static asset serving.
  *

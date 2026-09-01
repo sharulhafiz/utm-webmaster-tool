@@ -19,7 +19,7 @@ add_action( 'add_meta_boxes', function () {
         'shp_static_package',
         'Static HTML Package',
         'utm_shp_metabox_render',
-        'page',
+        UTM_SHP_POST_TYPES,
         'normal',
         'high'
     );

@@ -454,7 +454,7 @@ if ( function_exists( 'add_action' ) ) {
  * The files stay on disk so restoring the Page can reactivate them.
  */
 add_action( 'wp_trash_post', function ( $post_id ) {
-    if ( 'page' !== get_post_type( $post_id ) ) {
+    if ( ! utm_shp_is_supported_type( get_post_type( $post_id ) ) ) {
         return;
     }
     // Mark inactive — template_redirect checks 'active' meta before serving.
@@ -468,7 +468,7 @@ add_action( 'wp_trash_post', function ( $post_id ) {
  * When a Page is restored from trash: reactivate if files still exist.
  */
 add_action( 'untrash_post', function ( $post_id ) {
-    if ( 'page' !== get_post_type( $post_id ) ) {
+    if ( ! utm_shp_is_supported_type( get_post_type( $post_id ) ) ) {
         return;
     }
     if ( '1' === get_post_meta( $post_id, UTM_SHP_META_WAS_ACTIVE_BEFORE_TRASH, true )
@@ -483,7 +483,7 @@ add_action( 'untrash_post', function ( $post_id ) {
  * When a Page is permanently deleted: remove all package files and metadata.
  */
 add_action( 'delete_post', function ( $post_id ) {
-    if ( 'page' !== get_post_type( $post_id ) ) {
+    if ( ! utm_shp_is_supported_type( get_post_type( $post_id ) ) ) {
         return;
     }
     $dir = utm_shp_package_dir( $post_id );

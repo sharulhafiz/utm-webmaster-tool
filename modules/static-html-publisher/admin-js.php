@@ -153,15 +153,15 @@ add_action( 'wp_ajax_shp_upload', 'utm_shp_ajax_upload' );
 function utm_shp_ajax_upload() {
     check_ajax_referer( 'shp_upload', 'nonce' );
 
-    if ( ! current_user_can( 'edit_pages' ) ) {
+    if ( ! current_user_can( 'edit_others_posts' ) ) {
         wp_send_json_error( [ 'message' => 'Insufficient permissions.' ], 403 );
     }
 
     $post_id = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
-    if ( ! $post_id || 'page' !== get_post_type( $post_id ) ) {
-        wp_send_json_error( [ 'message' => 'Invalid page.' ] );
+    if ( ! $post_id || ! utm_shp_is_supported_type( get_post_type( $post_id ) ) ) {
+        wp_send_json_error( [ 'message' => 'Invalid post type.' ] );
     }
-    if ( ! current_user_can( 'edit_page', $post_id ) ) {
+    if ( ! current_user_can( 'edit_post', $post_id ) ) {
         wp_send_json_error( [ 'message' => 'Cannot edit this page.' ], 403 );
     }
 
@@ -225,15 +225,15 @@ add_action( 'wp_ajax_shp_unpublish', 'utm_shp_ajax_unpublish' );
 function utm_shp_ajax_unpublish() {
     check_ajax_referer( 'shp_unpublish', 'nonce' );
 
-    if ( ! current_user_can( 'edit_pages' ) ) {
+    if ( ! current_user_can( 'edit_others_posts' ) ) {
         wp_send_json_error( [ 'message' => 'Insufficient permissions.' ], 403 );
     }
 
     $post_id = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
-    if ( ! $post_id || 'page' !== get_post_type( $post_id ) ) {
-        wp_send_json_error( [ 'message' => 'Invalid page.' ] );
+    if ( ! $post_id || ! utm_shp_is_supported_type( get_post_type( $post_id ) ) ) {
+        wp_send_json_error( [ 'message' => 'Invalid post type.' ] );
     }
-    if ( ! current_user_can( 'edit_page', $post_id ) ) {
+    if ( ! current_user_can( 'edit_post', $post_id ) ) {
         wp_send_json_error( [ 'message' => 'Cannot edit this page.' ], 403 );
     }
 
