@@ -31,7 +31,8 @@ import time
 import urllib.request
 import urllib.error
 from pathlib import Path
-from config import PILOT_WAVE, MID_WAVE, FULL_WAVE, WAVE_MAP, VERSION_ENDPOINT, EXCLUDE_PATTERNS
+from config import PILOT_WAVE, MID_WAVE, FULL_WAVE, WAVE_MAP, VERSION_ENDPOINT, EXCLUDE_PATTERNS, \
+    SWARM_MIGRATED, SWARM_PLUGIN_PATH, SWARM_SSH_HOST, SWARM_SSH_USER
 
 # -- Paths --------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -391,6 +392,188 @@ def verify_site(profile_name, profile, expected_version, socks5_proxy=None):
             return None
 
 
+
+# -- Swarm deployment ---------------------------------------------------------
+
+def _get_swarm_ssh_key():
+    """Find the SSH key for www1."""
+    for cand in [Path.home() / ".ssh" / "id_ed25519", Path.home() / ".ssh" / "www1.key",
+                 REPO_ROOT / ".vscode/ssh_pk_www5.key"]:
+        if cand.exists():
+            return cand
+    return None
+
+
+def deploy_swarm(dry_run=False):
+    """Deploy plugin to the swarm shared NFS path via rsync.
+
+    One rsync to www1:/data/plugins/utm-webmaster-tool updates ALL 21 swarm
+    stacks simultaneously (read-only NFS mount, opcache revalidates ~2s).
+    Never rm -rf the live dir — stale NFS inode trap. Overwrite in place.
+    """
+    files = get_file_list()
+    if dry_run:
+        print(f"  [SWARM] {len(files)} files to sync -> {SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH} (dry-run)")
+        print(f"  [SWARM] Covers {len(SWARM_MIGRATED)} swarm sites: {', '.join(sorted(SWARM_MIGRATED))}")
+        return True
+
+    key_file = _get_swarm_ssh_key()
+    print(f"  [SWARM] Sync {len(files)} files -> {SWARM_SSH_USER}@{SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH}")
+
+    exclude_args = [f"--exclude={pat}" for pat in EXCLUDE_PATTERNS]
+    # Additional rsync-level excludes (belt-and-suspenders with EXCLUDE_PATTERNS)
+    rsync_extra = ["--exclude=.git/", "--exclude=.github/", "--exclude=.vscode/",
+                    "--exclude=deploy/", "--exclude=plans/"]
+    rsync_base = ["rsync", "-az", "--delete"] + exclude_args + rsync_extra
+    rsync_cmd = rsync_base + [str(REPO_ROOT) + "/",
+                               f"{SWARM_SSH_USER}@{SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH}/"]
+    if key_file:
+        rsync_cmd += ["-e", f"ssh -i {key_file} -o StrictHostKeyChecking=no -o ConnectTimeout=10"]
+    else:
+        rsync_cmd += ["-e", "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"]
+
+    print(f"  [RUN] rsync -> {SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH} ...")
+    try:
+        result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=180)
+        if result.returncode == 0:
+            print(f"  [OK] Swarm shared plugin synced ({len(files)} files) — opcache revalidates ~2s")
+            return True
+        err = (result.stderr or result.stdout or f"exit {result.returncode}").strip()[:300]
+        print(f"  [WARN] rsync failed (will try tar-over-SSH): {err}")
+    except FileNotFoundError:
+        print("  [WARN] rsync not found locally — falling back to tar-over-SSH")
+    except subprocess.TimeoutExpired:
+        print("  [FAIL] rsync timed out")
+        return False
+
+    # Fallback: tar-over-SSH
+    tar_excludes = ["--exclude=.git", "--exclude=.github", "--exclude=.vscode",
+                     "--exclude=deploy", "--exclude=plans", "--exclude=*.md",
+                     "--exclude=__pycache__", "--exclude=*.pyc", "--exclude=*.bak*"]
+    tar_cmd = ["tar", "cz", "-C", str(REPO_ROOT)] + tar_excludes
+    for pat in EXCLUDE_PATTERNS:
+        if pat not in ("*.md", "__pycache__", "*.pyc", "deploy", "plans", "*.bak*"):
+            tar_cmd += [f"--exclude={pat}"]
+    tar_cmd += ["."]
+    remote = f"{SWARM_SSH_USER}@{SWARM_SSH_HOST}"
+    ssh_base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"]
+    if key_file:
+        ssh_base += ["-i", str(key_file)]
+    ssh_tar = ssh_base + [remote, f"mkdir -p {SWARM_PLUGIN_PATH} && tar xz -C {SWARM_PLUGIN_PATH}"]
+    print(f"  [RUN] tar-over-SSH fallback -> {remote}:{SWARM_PLUGIN_PATH} ...")
+    try:
+        tar_proc = subprocess.Popen(tar_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ssh_proc = subprocess.Popen(ssh_tar, stdin=tar_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        tar_proc.stdout.close()
+        _, stderr = ssh_proc.communicate(timeout=180)
+        tar_proc.wait(timeout=10)
+        if ssh_proc.returncode == 0:
+            print(f"  [OK] Swarm shared plugin synced via tar-over-SSH")
+            return True
+        print(f"  [FAIL] tar-over-SSH failed: {(stderr or b'').decode()[:300]}")
+        return False
+    except Exception as e:
+        print(f"  [FAIL] tar fallback error: {e}")
+        return False
+
+
+def verify_swarm(expected_version):
+    """Post-deploy integrity check: compare repo checksums against NFS.
+
+    Runs md5sum over all PHP/JS/CSS files in the repo and on the NFS path,
+    then diffs the two lists. Returns True if byte-identical.
+    """
+    import hashlib
+
+    def _hash_tree(base_path, extensions=(".php", ".js", ".css")):
+        """Compute md5 for all files with given extensions under base_path."""
+        hashes = {}
+        base = Path(base_path)
+        for f in sorted(base.rglob("*")):
+            if f.is_file() and f.suffix in extensions:
+                # Skip excluded patterns
+                rel = str(f.relative_to(base))
+                if any(pat.rstrip("*") in rel for pat in (".git", ".github", ".vscode",
+                        "deploy", "plans", "tests", "__pycache__")):
+                    continue
+                try:
+                    h = hashlib.md5(f.read_bytes()).hexdigest()
+                    hashes[rel] = h
+                except OSError:
+                    hashes[rel] = "ERROR"
+        return hashes
+
+    print(f"  [VERIFY] Computing repo checksums...")
+    repo_hashes = _hash_tree(REPO_ROOT)
+
+    print(f"  [VERIFY] Computing NFS checksums via {SWARM_SSH_USER}@{SWARM_SSH_HOST}...")
+    # Use ssh + find + md5sum on remote
+    key_file = _get_swarm_ssh_key()
+    ssh_base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"]
+    if key_file:
+        ssh_base += ["-i", str(key_file)]
+    find_cmd = ("find " + SWARM_PLUGIN_PATH + " -type f ( "
+                 "-name '*.php' -o -name '*.js' -o -name '*.css') "
+                 "-not -path '*/.git/*' -not -path '*/tests/*' "
+                 "-not -path '*/deploy/*' -not -path '*/__pycache__/*' "
+                 "-exec md5sum {} \\; | sort")
+    try:
+        r = subprocess.run(ssh_base + [f"{SWARM_SSH_USER}@{SWARM_SSH_HOST}", find_cmd],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            print(f"  [FAIL] Remote checksum failed: {r.stderr.strip()[:200]}")
+            return False
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"  [FAIL] Remote checksum error: {e}")
+        return False
+
+    # Parse remote md5sum output
+    nfs_hashes = {}
+    for line in r.stdout.strip().splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            h, fpath = parts
+            # Extract relative path from NFS_PLUGIN_PATH
+            if fpath.startswith(SWARM_PLUGIN_PATH + "/"):
+                rel = fpath[len(SWARM_PLUGIN_PATH) + 1:]
+                nfs_hashes[rel] = h
+
+    # Compare
+    all_files = sorted(set(list(repo_hashes.keys()) + list(nfs_hashes.keys())))
+    mismatches = []
+    only_repo = []
+    only_nfs = []
+    for f in all_files:
+        r_hash = repo_hashes.get(f)
+        n_hash = nfs_hashes.get(f)
+        if r_hash is None:
+            only_nfs.append(f)
+        elif n_hash is None:
+            only_repo.append(f)
+        elif r_hash != n_hash:
+            mismatches.append(f)
+
+    if not mismatches and not only_repo and not only_nfs:
+        print(f"  [OK] Repo ↔ NFS byte-identical ({len(repo_hashes)} files)")
+        return True
+
+    if mismatches:
+        print(f"  [DRIFT] {len(mismatches)} files differ:")
+        for f in mismatches[:10]:
+            print(f"    {f}  repo={repo_hashes[f][:8]} nfs={nfs_hashes[f][:8]}")
+    if only_repo:
+        print(f"  [DRIFT] {len(only_repo)} files only in repo (not on NFS):")
+        for f in only_repo[:10]:
+            print(f"    {f}")
+    if only_nfs:
+        print(f"  [DRIFT] {len(only_nfs)} files only on NFS (not in repo):")
+        for f in only_nfs[:10]:
+            print(f"    {f}")
+    print(f"  [FAIL] Repo ↔ NFS drift detected ({len(mismatches)} diff, {len(only_repo)} repo-only, {len(only_nfs)} nfs-only)")
+    return False
+
+
+
 # -- Main ----------------------------------------------------------------------
 
 
@@ -411,6 +594,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="List files without deploying")
     parser.add_argument("--verify-only", action="store_true", help="Only check version endpoints")
     parser.add_argument("--list-sites", action="store_true", help="List all sites and waves")
+    parser.add_argument("--verify-swarm", action="store_true", help="Verify repo ↔ NFS integrity after deploy")
     parser.add_argument("--socks5", help="SOCKS5 proxy for FTP (e.g., socks5h://127.0.0.1:1080). Uses curl instead of ftplib.")
     args = parser.parse_args()
 
@@ -425,19 +609,35 @@ def main():
 
     # Build site list
     if args.list_sites:
-        print(f"\n  {'Site':<20} {'Wave':<10} {'Host':<25} {'Protocol':<8}")
-        print(f"  {'-'*20} {'-'*10} {'-'*25} {'-'*8}")
-        for name, prof in sorted(profiles.items()):
+        # Also list swarm-only sites (no sftp.json profile)
+        all_names = sorted(set(list(profiles.keys()) + SWARM_MIGRATED))
+        print(f"\n  {'Site':<20} {'Wave':<10} {'Dest':<8} {'Host':<25}")
+        print(f"  {'-'*20} {'-'*10} {'-'*8} {'-'*25}")
+        for name in all_names:
             wave = WAVE_MAP.get(name, "unassigned")
-            protocol = prof.get("protocol", "ftp").upper()
-            print(f"  {name:<20} {wave:<10} {prof['host']:<25} {protocol:<8}")
+            prof = profiles.get(name)
+            if name in SWARM_MIGRATED:
+                dest = "SWARM"
+                host = SWARM_SSH_HOST
+            elif prof:
+                dest = prof.get("protocol", "ftp").upper()
+                host = prof.get("host", "?")
+            else:
+                dest = "?"
+                host = "?"
+            print(f"  {name:<20} {wave:<10} {dest:<8} {host:<25}")
+        print(f"\n  SWARM shared path: {SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH} ({len(SWARM_MIGRATED)} sites, one sync)")
         return
 
     # Determine targets
     if args.target:
-        targets = {args.target: profiles.get(args.target)}
-        if targets[args.target] is None:
+        if args.target in SWARM_MIGRATED:
+            targets = {args.target: profiles.get(args.target)}
+        elif args.target in profiles:
+            targets = {args.target: profiles[args.target]}
+        else:
             print(f"[FAIL] Unknown target: {args.target}")
+            print(f"  Known swarm sites (shared NFS, no profile needed): {', '.join(sorted(SWARM_MIGRATED))}")
             sys.exit(1)
     elif args.wave:
         wave_map = {"pilot": PILOT_WAVE, "mid": MID_WAVE, "full": FULL_WAVE}
@@ -473,10 +673,24 @@ def main():
         print(f"\n  [STATS] Results: {results['ok']} ok, {results['mismatch']} mismatch, {results['unreachable']} unreachable")
         return
 
+    # -- Determine swarm vs plesk targets ----------------------------------
+    swarm_targets = {k: v for k, v in targets.items() if k in SWARM_MIGRATED}
+    plesk_targets = {k: v for k, v in targets.items() if k not in SWARM_MIGRATED}
+
     # -- Deploy mode ------------------------------------------------------
     results = {"ok": 0, "fail": 0, "skipped": 0}
 
-    for name, prof in sorted(targets.items()):
+    # Swarm shared deployment (one rsync covers all swarm sites)
+    if swarm_targets:
+        print(f"\n  -- SWARM shared ({len(swarm_targets)} sites) --")
+        ok = deploy_swarm(args.dry_run)
+        if ok:
+            results["ok"] += len(swarm_targets)
+        else:
+            results["fail"] += len(swarm_targets)
+
+    # Plesk per-site deployment
+    for name, prof in sorted(plesk_targets.items()):
         protocol = prof.get("protocol", "ftp").lower()
         print(f"\n  -- {name} ({protocol.upper()}) --")
 
@@ -494,6 +708,11 @@ def main():
 
         # Small delay between sites to avoid hammering servers
         time.sleep(1)
+
+    # -- Post-deploy verification -----------------------------------------
+    if args.verify_swarm and not args.dry_run:
+        print(f"\n  -- Verify repo ↔ NFS integrity --")
+        verify_swarm(expected_version)
 
     # -- Summary ----------------------------------------------------------
     total = len(targets)

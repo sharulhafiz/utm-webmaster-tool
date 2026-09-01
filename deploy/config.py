@@ -66,6 +66,50 @@ for site in MID_WAVE:
 for site in FULL_WAVE:
     WAVE_MAP[site] = "full"
 
+# ── Swarm shared plugin (NFS) ───────────────────────────────────────────────
+# Sites that have migrated to the swarm mount the plugin read-only from
+# /data/plugins/utm-webmaster-tool (NFS wwwdata, device
+# :/export/pool1/wwwdata/plugins/utm-webmaster-tool). Deploying to this
+# single path instantly updates ALL swarm stacks — no per-site FTP needed.
+#
+# SOURCE OF TRUTH: this list must match:
+#   - Web-Ops/docs/domain-inventory.md (🟢 MIGRATED entries with NFS plugin)
+#   - Web-Ops/configs/sites/*/docker-compose*.yml (utm-webmaster-tool-nfs-wwwdata volume)
+#
+# To regenerate: grep -rl "utm-webmaster-tool-nfs-wwwdata" configs/sites/*/docker-compose*.yml
+#
+# Excluded (NOT NFS consumers despite being in configs/sites/):
+#   - bim, mjarc: no configs/sites/ directories (phantom entries)
+#   - failean: uses legacy tgz config, not NFS volume
+SWARM_MIGRATED = [
+    "alumni",          # 🟢 swarm (www5→swarm)
+    "apps.library",    # 🟢 swarm (NFS wwwdata mount)
+    "builtsurvey",     # 🟢 swarm (www5→swarm)
+    "chancellery",     # 🟢 swarm (redis db3)
+    "comp",            # 🟢 swarm (NFS wwwdata mount)
+    "civil",           # 🟢 swarm (www5→swarm)
+    "dvcai",           # 🟢 swarm (NFS wwwdata mount)
+    "events",          # 🟢 swarm (NFS wwwdata mount)
+    "fai",             # 🟢 swarm (redis db4)
+    "fest",            # 🟢 swarm (www5→swarm)
+    "humanities",      # 🟢 swarm (redis db1)
+    "library",         # 🟢 swarm (NFS wwwdata mount)
+    "management",      # 🟢 swarm (www5→swarm, wp2_ prefix)
+    "mjiit",           # 🟢 swarm (redis db5)
+    "registrar",       # 🟢 swarm (NFS wwwdata mount — site of #153)
+    "research",        # 🟢 swarm (redis db0)
+    "space",           # 🟢 swarm (www2→swarm, REDIS_DB=6)
+    "sps",             # 🟢 swarm (NFS wwwdata mount)
+    "studentaffairs",  # 🟢 swarm (redis db2)
+    "utmcdex",         # 🟢 swarm (NFS wwwdata mount)
+    "virtualgallery",  # 🟢 swarm (www3→swarm, 2026-08-14)
+]
+SWARM_PLUGIN_PATH = "/data/plugins/utm-webmaster-tool"
+SWARM_SSH_HOST = "www1.utm.my"
+SWARM_SSH_USER = "Sysadm1n"
+# Key for swarm SSH — uses default ~/.ssh/id_ed25519 (hermes www1 key)
+# Falls back to ~/.ssh/www1.key / id_ed25519 per deploy.py discovery.
+
 # ── Verification endpoint ────────────────────────────────────────────────────
 VERSION_ENDPOINT = "/wp-json/utm-webmaster/v1/version"
 
@@ -89,4 +133,5 @@ EXCLUDE_PATTERNS = [
     "deploy",
     "__pycache__",
     "*.pyc",
+    "*.bak*",
 ]
