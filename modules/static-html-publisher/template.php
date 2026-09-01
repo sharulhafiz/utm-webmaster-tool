@@ -19,12 +19,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return int|false Page ID or false.
  */
 function utm_shp_current_page_id() {
-    if ( is_page() && ! is_singular() ) {
-        return false;
-    }
-
-    global $wp_query;
-    if ( ! $wp_query->is_single || 'page' !== get_post_type() ) {
+    // Must be a singular page view (not archive, not search).
+    if ( ! is_singular( 'page' ) ) {
         return false;
     }
 
