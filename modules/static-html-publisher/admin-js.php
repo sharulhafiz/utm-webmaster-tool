@@ -21,41 +21,38 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
     wp_enqueue_script( 'shp-admin', false, [], UTM_PLUGIN_VERSION, true );
     wp_add_inline_script( 'shp-admin', '
     (function(){
-        var btn      = document.getElementById("shp-upload-btn");
-        var unpBtn   = document.getElementById("shp-unpublish-btn");
-        var fileIn   = document.getElementById("shp-zip-input");
-        var msg      = document.getElementById("shp-msg");
-        var area     = document.getElementById("shp-upload-area");
-        var postId   = "' . get_the_ID() . '";
+        function init() {
+            var btn    = document.getElementById("shp-upload-btn");
+            var unpBtn = document.getElementById("shp-unpublish-btn");
+            var fileIn = document.getElementById("shp-zip-input");
+            var msg    = document.getElementById("shp-msg");
+            var area   = document.getElementById("shp-upload-area");
+            var postId = "' . (int) get_the_ID() . '";
 
-        function showMsg(text, type) {
-            msg.style.display = "block";
-            msg.className = "shp-msg shp-msg--" + type;
-            msg.textContent = text;
-        }
+            if ( ! btn || ! fileIn || ! msg ) return;
 
-        // Enable upload button when file selected.
-        if (fileIn) {
+            function showMsg(text, type) {
+                msg.style.display = "block";
+                msg.className = "shp-msg shp-msg--" + type;
+                msg.textContent = text;
+            }
+
             fileIn.addEventListener("change", function() {
                 btn.disabled = !fileIn.files.length;
                 if (fileIn.files.length) {
                     showMsg("Selected: " + fileIn.files[0].name, "info");
                 }
             });
-        }
 
-        // Drag-and-drop visual feedback.
-        if (area) {
-            ["dragenter","dragover"].forEach(function(e) {
-                area.addEventListener(e, function(ev) { ev.preventDefault(); area.classList.add("shp-dragover"); });
-            });
-            ["dragleave","drop"].forEach(function(e) {
-                area.addEventListener(e, function(ev) { ev.preventDefault(); area.classList.remove("shp-dragover"); });
-            });
-        }
+            if (area) {
+                ["dragenter","dragover"].forEach(function(e) {
+                    area.addEventListener(e, function(ev) { ev.preventDefault(); area.classList.add("shp-dragover"); });
+                });
+                ["dragleave","drop"].forEach(function(e) {
+                    area.addEventListener(e, function(ev) { ev.preventDefault(); area.classList.remove("shp-dragover"); });
+                });
+            }
 
-        // Upload handler.
-        if (btn) {
             btn.addEventListener("click", function() {
                 if (!fileIn || !fileIn.files.length) return;
 
@@ -96,43 +93,52 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
                     btn.textContent = "Upload & Publish";
                 });
             });
-        }
 
-        // Unpublish handler.
-        if (unpBtn) {
-            unpBtn.addEventListener("click", function() {
-                if (!confirm("Remove the static package from this page? The page will revert to normal WordPress content.")) return;
+            if (unpBtn) {
+                unpBtn.addEventListener("click", function() {
+                    if (!confirm("Remove the static package from this page? The page will revert to normal WordPress content.")) return;
 
-                var fd = new FormData();
-                fd.append("action", "shp_unpublish");
-                fd.append("nonce", "' . wp_create_nonce( 'shp_unpublish' ) . '");
-                fd.append("post_id", postId);
+                    var fd = new FormData();
+                    fd.append("action", "shp_unpublish");
+                    fd.append("nonce", "' . wp_create_nonce( 'shp_unpublish' ) . '");
+                    fd.append("post_id", postId);
 
-                unpBtn.disabled = true;
-                unpBtn.textContent = "Removing\u2026";
+                    unpBtn.disabled = true;
+                    unpBtn.textContent = "Removing\u2026";
 
-                fetch("' . admin_url( 'admin-ajax.php' ) . '", {
-                    method: "POST",
-                    body: fd
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(d) {
-                    if (d.success) {
-                        showMsg("Package removed. Page reverts to normal content.", "ok");
-                        setTimeout(function() { location.reload(); }, 1200);
-                    } else {
-                        showMsg("\u2717 " + (d.data.message || "Failed."), "err");
+                    fetch("' . admin_url( 'admin-ajax.php' ) . '", {
+                        method: "POST",
+                        body: fd
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (d.success) {
+                            showMsg("Package removed. Page reverts to normal content.", "ok");
+                            setTimeout(function() { location.reload(); }, 1200);
+                        } else {
+                            showMsg("\u2717 " + (d.data.message || "Failed."), "err");
+                            unpBtn.disabled = false;
+                            unpBtn.textContent = "Unpublish Package";
+                        }
+                    })
+                    .catch(function() {
+                        showMsg("Network error.", "err");
                         unpBtn.disabled = false;
                         unpBtn.textContent = "Unpublish Package";
-                    }
-                })
-                .catch(function() {
-                    showMsg("Network error.", "err");
-                    unpBtn.disabled = false;
-                    unpBtn.textContent = "Unpublish Package";
+                    });
                 });
-            });
+            }
         }
+
+        // Try immediately, then retry on DOMContentLoaded and after a delay
+        // to handle the block editor rendering classic metaboxes asynchronously.
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", init);
+        } else {
+            init();
+        }
+        setTimeout(init, 500);
+        setTimeout(init, 1500);
     })();
     ' );
 } );
