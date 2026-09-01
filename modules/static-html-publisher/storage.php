@@ -9,10 +9,28 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Page ID is the stable identity for packages. Changing a Page's title,
  * slug or parent does not affect the stored files.
  *
+ * Metadata is stored as WordPress post meta (not a custom table) because:
+ *   - All fields are simple scalars 1:1 with a Page
+ *   - Automatic cleanup on page deletion (WP core handles trash/delete)
+ *   - Multisite works natively (post meta is site-scoped)
+ *   - No custom CREATE TABLE / dbDelta needed
+ *   - No orphaned rows on module uninstall
+ *   - Standard WordPress idiom — familiar to other developers
+ *
  * Directory layout:
  *   wp-content/static-packages/{page_id}/        ← active (live) package
  *   wp-content/static-packages/{page_id}__staging ← staging (during extraction)
  */
+
+// ── Meta keys ────────────────────────────────────────────────────
+define( 'UTM_SHP_META_PREFIX', '_shp_' );
+define( 'UTM_SHP_META_ACTIVE',          UTM_SHP_META_PREFIX . 'active' );
+define( 'UTM_SHP_META_ZIP_NAME',        UTM_SHP_META_PREFIX . 'zip_name' );
+define( 'UTM_SHP_META_FILE_COUNT',      UTM_SHP_META_PREFIX . 'file_count' );
+define( 'UTM_SHP_META_TOTAL_BYTES',     UTM_SHP_META_PREFIX . 'total_bytes' );
+define( 'UTM_SHP_META_WAS_ACTIVE_BEFORE_TRASH', UTM_SHP_META_PREFIX . 'was_active_before_trash' );
+
+// ── Directory helpers ────────────────────────────────────────────
 
 /**
  * Base directory for all static packages.
@@ -50,7 +68,7 @@ function utm_shp_staging_dir( $page_id ) {
  * @return string|false  Absolute path or false if not found.
  */
 function utm_shp_index_html( $page_id ) {
-    $dir = utm_shp_package_dir( $page_id );
+    $dir   = utm_shp_package_dir( $page_id );
     $index = $dir . '/index.html';
     if ( is_file( $index ) ) {
         return $index;
@@ -65,97 +83,67 @@ function utm_shp_index_html( $page_id ) {
  * @return bool
  */
 function utm_shp_has_package( $page_id ) {
-    return false !== utm_shp_index_html( $page_id );
+    if ( ! get_post( $page_id ) ) {
+        return false;
+    }
+    return '1' === get_post_meta( $page_id, UTM_SHP_META_ACTIVE, true )
+        && false !== utm_shp_index_html( $page_id );
 }
 
-// ── Database helpers ──────────────────────────────────────────────
+// ── Post meta helpers ────────────────────────────────────────────
 
 /**
- * Ensure the packages metadata table exists.
- *
- * Uses Page ID as the stable key. Slug/title/parent are informational only
- * and updated on each publish for display purposes.
- */
-function utm_shp_ensure_table() {
-    global $wpdb;
-    $table   = $wpdb->prefix . 'shp_packages';
-    $charset = $wpdb->get_charset_collate();
-
-    $sql = "CREATE TABLE IF NOT EXISTS $table (
-        page_id       BIGINT(20) UNSIGNED NOT NULL,
-        zip_name      VARCHAR(255) NOT NULL DEFAULT '',
-        status        ENUM('active','inactive') NOT NULL DEFAULT 'inactive',
-        file_count    INT UNSIGNED NOT NULL DEFAULT 0,
-        total_bytes   BIGINT UNSIGNED NOT NULL DEFAULT 0,
-        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at    DATETIME DEFAULT NULL,
-        PRIMARY KEY (page_id)
-    ) $charset;";
-
-    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-    dbDelta( $sql );
-}
-add_action( 'init', 'utm_shp_ensure_table' );
-
-/**
- * Get package metadata row.
+ * Get package metadata for a Page.
  *
  * @param  int $page_id
- * @return object|null
+ * @return object|null  Object with zip_name, file_count, total_bytes, updated_at or null.
  */
 function utm_shp_get_meta( $page_id ) {
-    global $wpdb;
-    return $wpdb->get_row(
-        $wpdb->prepare( 'SELECT * FROM ' . $wpdb->prefix . 'shp_packages WHERE page_id = %d', $page_id )
-    );
+    $active = get_post_meta( $page_id, UTM_SHP_META_ACTIVE, true );
+    if ( '1' !== $active ) {
+        return null;
+    }
+    return (object) [
+        'page_id'     => $page_id,
+        'zip_name'    => get_post_meta( $page_id, UTM_SHP_META_ZIP_NAME, true ),
+        'status'      => 'active',
+        'file_count'  => (int) get_post_meta( $page_id, UTM_SHP_META_FILE_COUNT, true ),
+        'total_bytes' => (int) get_post_meta( $page_id, UTM_SHP_META_TOTAL_BYTES, true ),
+        'updated_at'  => get_post_meta( $page_id, UTM_SHP_META_PREFIX . 'updated_at', true ),
+    ];
 }
 
 /**
- * Upsert package metadata.
+ * Set package metadata on a Page.
  *
  * @param int    $page_id
  * @param string $zip_name
  * @param int    $file_count
  * @param int    $total_bytes
- * @param string $status
+ * @param string $status      'active' or 'inactive'.
  */
 function utm_shp_set_meta( $page_id, $zip_name, $file_count, $total_bytes, $status = 'active' ) {
-    global $wpdb;
-    $table = $wpdb->prefix . 'shp_packages';
-    $now   = current_time( 'mysql', true );
-
-    $existing = $wpdb->get_var(
-        $wpdb->prepare( 'SELECT page_id FROM ' . $table . ' WHERE page_id = %d', $page_id )
-    );
-
-    $data = [
-        'zip_name'    => $zip_name,
-        'status'      => $status,
-        'file_count'  => $file_count,
-        'total_bytes' => $total_bytes,
-        'updated_at'  => $now,
-    ];
-
-    if ( $existing ) {
-        $wpdb->update( $table, $data, [ 'page_id' => $page_id ] );
-    } else {
-        $data['page_id']    = $page_id;
-        $data['created_at'] = $now;
-        $wpdb->insert( $table, $data );
-    }
+    update_post_meta( $page_id, UTM_SHP_META_ACTIVE,     'active' === $status ? '1' : '0' );
+    update_post_meta( $page_id, UTM_SHP_META_ZIP_NAME,   $zip_name );
+    update_post_meta( $page_id, UTM_SHP_META_FILE_COUNT,  $file_count );
+    update_post_meta( $page_id, UTM_SHP_META_TOTAL_BYTES, $total_bytes );
+    update_post_meta( $page_id, UTM_SHP_META_PREFIX . 'updated_at', current_time( 'mysql', true ) );
 }
 
 /**
- * Delete package metadata row.
+ * Delete all package metadata from a Page.
  *
  * @param int $page_id
  */
 function utm_shp_delete_meta( $page_id ) {
-    global $wpdb;
-    $wpdb->delete( $wpdb->prefix . 'shp_packages', [ 'page_id' => $page_id ] );
+    delete_post_meta( $page_id, UTM_SHP_META_ACTIVE );
+    delete_post_meta( $page_id, UTM_SHP_META_ZIP_NAME );
+    delete_post_meta( $page_id, UTM_SHP_META_FILE_COUNT );
+    delete_post_meta( $page_id, UTM_SHP_META_TOTAL_BYTES );
+    delete_post_meta( $page_id, UTM_SHP_META_PREFIX . 'updated_at' );
 }
 
-// ── Extraction ────────────────────────────────────────────────────
+// ── Filesystem helpers ───────────────────────────────────────────
 
 /**
  * Recursively calculate total size of all files in a directory.
@@ -206,7 +194,7 @@ function utm_shp_rmdir_recursive( $dir ) {
  * @param int $page_id
  */
 function utm_shp_cleanup_staging( $page_id ) {
-    $base = utm_shp_packages_dir();
+    $base   = utm_shp_packages_dir();
     $prefix = (int) $page_id . '__staging_';
     foreach ( glob( $base . '/' . $prefix . '*' ) as $stale ) {
         if ( is_dir( $stale ) ) {
@@ -214,6 +202,8 @@ function utm_shp_cleanup_staging( $page_id ) {
         }
     }
 }
+
+// ── Extraction & activation ──────────────────────────────────────
 
 /**
  * Extract a validated ZIP into a staging directory, then activate.
@@ -225,7 +215,7 @@ function utm_shp_cleanup_staging( $page_id ) {
  *   4. Enforce size/count limits on extracted files
  *   5. Remove old active directory (if any)
  *   6. Rename staging → active
- *   7. Upsert DB metadata
+ *   7. Update post meta
  *
  * On any failure, staging is cleaned up and the old active directory
  * is left untouched.
@@ -233,7 +223,7 @@ function utm_shp_cleanup_staging( $page_id ) {
  * @param  string $zip_path Absolute path to validated ZIP.
  * @param  int    $page_id  WordPress Page ID.
  * @param  string $zip_name Original upload filename (for metadata).
- * @param  array  $limits   Optional overrides passed to utm_shp_validate_zip.
+ * @param  array  $limits   Optional overrides passed to validation.
  * @return string[]          Error messages; empty on success.
  */
 function utm_shp_activate( $zip_path, $page_id, $zip_name, $limits = [] ) {
@@ -308,7 +298,6 @@ function utm_shp_activate( $zip_path, $page_id, $zip_name, $limits = [] ) {
 
     // 1. Verify index.html is inside the final publication root.
     $index_found = false;
-    $index_rel   = '';
     $scan_dir    = $staging;
 
     $candidates = [
@@ -317,8 +306,8 @@ function utm_shp_activate( $zip_path, $page_id, $zip_name, $limits = [] ) {
     ];
 
     // Check single-subdirectory fallback.
-    $entries = array_diff( scandir( $staging ), [ '.', '..' ] );
-    $dirs    = array_filter( $entries, function ( $e ) use ( $staging ) {
+    $entries     = array_diff( scandir( $staging ), [ '.', '..' ] );
+    $dirs        = array_filter( $entries, function ( $e ) use ( $staging ) {
         return is_dir( $staging . '/' . $e );
     } );
     $files_at_root = array_diff( $entries, $dirs );
@@ -336,7 +325,6 @@ function utm_shp_activate( $zip_path, $page_id, $zip_name, $limits = [] ) {
             $real_stg  = realpath( $staging );
             if ( false !== $real_cand && 0 === strpos( $real_cand, $real_stg ) ) {
                 $index_found = true;
-                $index_rel   = str_replace( $staging . '/', '', $real_cand );
                 break;
             }
         }
@@ -391,7 +379,7 @@ function utm_shp_activate( $zip_path, $page_id, $zip_name, $limits = [] ) {
         utm_shp_rmdir_recursive( $staging );
     }
 
-    // Persist metadata.
+    // Persist metadata via post meta.
     utm_shp_set_meta( $page_id, $zip_name, $file_count, $total_size, 'active' );
 
     return $errors; // Non-empty = warnings only (extraction succeeded).
@@ -410,3 +398,56 @@ function utm_shp_deactivate( $page_id ) {
     utm_shp_delete_meta( $page_id );
     utm_shp_cleanup_staging( $page_id );
 }
+
+// ── WordPress lifecycle hooks ────────────────────────────────────
+// Guard with function_exists so the file can be required for testing
+// outside WordPress (validation + filesystem functions still work).
+
+if ( function_exists( 'add_action' ) ) {
+
+/**
+ * When a Page is moved to trash: mark package inactive but preserve files.
+ * The files stay on disk so restoring the Page can reactivate them.
+ */
+add_action( 'wp_trash_post', function ( $post_id ) {
+    if ( 'page' !== get_post_type( $post_id ) ) {
+        return;
+    }
+    // Mark inactive — template_redirect checks 'active' meta before serving.
+    if ( '1' === get_post_meta( $post_id, UTM_SHP_META_ACTIVE, true ) ) {
+        update_post_meta( $post_id, UTM_SHP_META_WAS_ACTIVE_BEFORE_TRASH, '1' );
+        update_post_meta( $post_id, UTM_SHP_META_ACTIVE, '0' );
+    }
+} );
+
+/**
+ * When a Page is restored from trash: reactivate if files still exist.
+ */
+add_action( 'untrash_post', function ( $post_id ) {
+    if ( 'page' !== get_post_type( $post_id ) ) {
+        return;
+    }
+    if ( '1' === get_post_meta( $post_id, UTM_SHP_META_WAS_ACTIVE_BEFORE_TRASH, true )
+         && false !== utm_shp_index_html( $post_id )
+    ) {
+        update_post_meta( $post_id, UTM_SHP_META_ACTIVE, '1' );
+    }
+    delete_post_meta( $post_id, UTM_SHP_META_WAS_ACTIVE_BEFORE_TRASH );
+} );
+
+/**
+ * When a Page is permanently deleted: remove all package files and metadata.
+ */
+add_action( 'delete_post', function ( $post_id ) {
+    if ( 'page' !== get_post_type( $post_id ) ) {
+        return;
+    }
+    $dir = utm_shp_package_dir( $post_id );
+    if ( is_dir( $dir ) ) {
+        utm_shp_rmdir_recursive( $dir );
+    }
+    utm_shp_cleanup_staging( $post_id );
+    // Post meta is automatically cleaned up by WP core on delete.
+} );
+
+} // end function_exists( 'add_action' ) guard.

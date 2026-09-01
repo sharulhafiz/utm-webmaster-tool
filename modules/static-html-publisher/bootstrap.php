@@ -25,15 +25,29 @@ require_once __DIR__ . '/template.php';
  * Register custom rewrite rules and query vars for static asset serving.
  *
  * Pattern: <page-path>/<file-with-extension> → static_asset=<filename>
- * Page-path is greedy so nested pages like /campaign/open-day-2026/ work.
+ *
+ * The page-path group (.+) is greedy, so for a nested URL like:
+ *   /magazine/issue-2026/assets/js/app.js
+ * It correctly captures:
+ *   page_path    = magazine/issue-2026/assets/js
+ *   static_asset = app.js
+ * get_page_by_path() then resolves the full hierarchical path.
+ *
+ * The filename group ([^/]+) allows spaces, hyphens, underscores, and dots
+ * in asset names — common in AI-generated ZIPs. Only the final extension
+ * determines whether the rule fires; the rule does NOT match .php, .phtml,
+ * or other server-executable extensions.
+ *
+ * Trailing slashes: WordPress strips them before rewrite matching, so
+ * /static-test/style.css/ becomes /static-test/style.css for matching.
+ * Canonical redirects happen AFTER template_redirect (priority 10 > 1),
+ * so asset serving is not affected.
  */
 add_action( 'init', function () {
-    add_rewrite_tag( '%static_asset%', '([^/]+\.[a-z0-9]{2,10})' );
+    add_rewrite_tag( '%static_asset%', '([^/]+)' );
 
-    // Catch page asset requests before WordPress's page query rejects them.
-    // Excludes .php to avoid intercepting wp-login.php, xmlrpc.php, etc.
     add_rewrite_rule(
-        '^(.+)/([^/]+\.(?:css|js|json|png|jpe?g|gif|svg|webp|woff2?|ttf|eot|otf|ico|txt|map|pdf|avif|mp4|webm))$',
+        '^(.+)/([^/]+\.(?:css|js|json|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|eot|otf|ico|txt|map|pdf|mp4|webm))$',
         'index.php?static_asset=$matches[2]&page_path=$matches[1]',
         'top'
     );
@@ -41,5 +55,6 @@ add_action( 'init', function () {
 
 add_filter( 'query_vars', function ( $vars ) {
     $vars[] = 'page_path';
+    $vars[] = 'static_asset';
     return $vars;
 });
