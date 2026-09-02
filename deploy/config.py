@@ -107,6 +107,9 @@ SWARM_MIGRATED = [
 SWARM_PLUGIN_PATH = "/data/plugins/utm-webmaster-tool"
 SWARM_SSH_HOST = "www1.utm.my"
 SWARM_SSH_USER = "Sysadm1n"
+# Owner of the live plugin dir on www1 (devops:devops 755). The SSH login user
+# (Sysadm1n) cannot write it directly; writes go through `sudo -n -u devops`.
+SWARM_REMOTE_OWNER = "devops"
 # Key for swarm SSH — uses default ~/.ssh/id_ed25519 (hermes www1 key)
 # Falls back to ~/.ssh/www1.key / id_ed25519 per deploy.py discovery.
 

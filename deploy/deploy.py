@@ -25,6 +25,7 @@ import ftplib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -32,7 +33,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from config import PILOT_WAVE, MID_WAVE, FULL_WAVE, WAVE_MAP, VERSION_ENDPOINT, EXCLUDE_PATTERNS, \
-    SWARM_MIGRATED, SWARM_PLUGIN_PATH, SWARM_SSH_HOST, SWARM_SSH_USER
+    SWARM_MIGRATED, SWARM_PLUGIN_PATH, SWARM_SSH_HOST, SWARM_SSH_USER, SWARM_REMOTE_OWNER
 
 # -- Paths --------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -158,6 +159,7 @@ def deploy_ftp(profile_name, profile, passwords, dry_run):
 
         files = get_file_list()
         uploaded = 0
+        failed = 0
 
         for rel_file in files:
             local_file = REPO_ROOT / rel_file
@@ -180,11 +182,15 @@ def deploy_ftp(profile_name, profile, passwords, dry_run):
                 if uploaded % 20 == 0:
                     print(f"  [UP] {uploaded}/{len(files)} files uploaded...")
             except ftplib.error_perm as e:
-                print(f"  [WARN] Failed {remote_file}: {e}")
+                failed += 1
+                print(f"  [WRITE-FAIL] {remote_file}: {e}")
 
         ftp.quit()
+        if failed:
+            print(f"  [PARTIAL] {uploaded}/{len(files)} uploaded, {failed} DENIED to {profile_name} — site NOT fully updated")
+            return False
         print(f"  [OK] {uploaded}/{len(files)} files uploaded to {profile_name}")
-        return uploaded == len(files)
+        return True
 
     except ftplib.all_errors as e:
         print(f"  [FAIL] FTP error for {profile_name}: {e}")
@@ -404,12 +410,36 @@ def _get_swarm_ssh_key():
     return None
 
 
-def deploy_swarm(dry_run=False):
-    """Deploy plugin to the swarm shared NFS path via rsync.
+def _ssh_base(key_file=None):
+    ssh = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"]
+    if key_file:
+        ssh += ["-i", str(key_file)]
+    return ssh
 
-    One rsync to www1:/data/plugins/utm-webmaster-tool updates ALL 21 swarm
-    stacks simultaneously (read-only NFS mount, opcache revalidates ~2s).
-    Never rm -rf the live dir — stale NFS inode trap. Overwrite in place.
+
+def _remote_probe(remote, cmd, key_file=None):
+    """Run a remote command and return (returncode, stdout). Read-only probe."""
+    try:
+        r = subprocess.run(_ssh_base(key_file) + [remote, cmd],
+                           capture_output=True, text=True, timeout=20)
+        return r.returncode, (r.stdout or "").strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 124, ""
+
+
+def deploy_swarm(dry_run=False):
+    """Deploy plugin to the swarm shared NFS path.
+
+    www1 has NO rsync binary and the plugin dir is owned by 'devops' (755),
+    so the SSH login user typically cannot write it directly.
+
+    Strategy (in order):
+      1. rsync -az --delete  — only if remote rsync exists AND dir is writable
+         by the SSH login user.
+      2. tar-over-SSH via `sudo -n -u <owner> tar xz -C <path>` — overwrite in
+         place, NO deletion (stale NFS inode trap). *.bak*/tests stay excluded.
+
+    Never rm -rf the live dir. Overwrite in place only.
     """
     files = get_file_list()
     if dry_run:
@@ -418,49 +448,77 @@ def deploy_swarm(dry_run=False):
         return True
 
     key_file = _get_swarm_ssh_key()
-    print(f"  [SWARM] Sync {len(files)} files -> {SWARM_SSH_USER}@{SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH}")
+    remote = f"{SWARM_SSH_USER}@{SWARM_SSH_HOST}"
 
-    exclude_args = [f"--exclude={pat}" for pat in EXCLUDE_PATTERNS]
-    # Additional rsync-level excludes (belt-and-suspenders with EXCLUDE_PATTERNS)
-    rsync_extra = ["--exclude=.git/", "--exclude=.github/", "--exclude=.vscode/",
-                    "--exclude=deploy/", "--exclude=plans/"]
-    rsync_base = ["rsync", "-az", "--delete"] + exclude_args + rsync_extra
-    rsync_cmd = rsync_base + [str(REPO_ROOT) + "/",
-                               f"{SWARM_SSH_USER}@{SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH}/"]
-    if key_file:
-        rsync_cmd += ["-e", f"ssh -i {key_file} -o StrictHostKeyChecking=no -o ConnectTimeout=10"]
-    else:
-        rsync_cmd += ["-e", "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"]
+    # Capability probes (read-only)
+    rc_rsync, _ = _remote_probe(remote, "command -v rsync", key_file)
+    rc_exists, _ = _remote_probe(remote, f"test -d {shlex.quote(SWARM_PLUGIN_PATH)} && echo DIR", key_file)
+    rc_w, _ = _remote_probe(remote, f"test -w {shlex.quote(SWARM_PLUGIN_PATH)} && echo WRITABLE", key_file)
+    dir_writable = (rc_w == 0)
+    rsync_available = (rc_rsync == 0) and dir_writable
+    sudo_usable = False
+    if not dir_writable:
+        rc_sudo, _ = _remote_probe(
+            remote, f"sudo -n -u {SWARM_REMOTE_OWNER} test -w {shlex.quote(SWARM_PLUGIN_PATH)} && echo WRITABLE",
+            key_file)
+        sudo_usable = (rc_sudo == 0)
+        if rc_exists != 0:
+            print(f"  [FAIL] {SWARM_PLUGIN_PATH} does not exist on {SWARM_SSH_HOST} — refusing (never mkdir the live plugin dir)")
+            return False
+        if not sudo_usable:
+            print(f"  [FAIL] {SWARM_PLUGIN_PATH} not writable as {SWARM_SSH_USER} "
+                  f"and `sudo -n -u {SWARM_REMOTE_OWNER}` unavailable — refusing to attempt a partial sync")
+            return False
 
-    print(f"  [RUN] rsync -> {SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH} ...")
-    try:
-        result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=180)
-        if result.returncode == 0:
-            print(f"  [OK] Swarm shared plugin synced ({len(files)} files) — opcache revalidates ~2s")
-            return True
-        err = (result.stderr or result.stdout or f"exit {result.returncode}").strip()[:300]
-        print(f"  [WARN] rsync failed (will try tar-over-SSH): {err}")
-    except FileNotFoundError:
-        print("  [WARN] rsync not found locally — falling back to tar-over-SSH")
-    except subprocess.TimeoutExpired:
-        print("  [FAIL] rsync timed out")
-        return False
+    print(f"  [SWARM] Sync {len(files)} files -> {remote}:{SWARM_PLUGIN_PATH} "
+          f"({'rsync' if rsync_available else 'tar-over-SSH via sudo -u ' + SWARM_REMOTE_OWNER})")
 
-    # Fallback: tar-over-SSH
+    # -- Path 1: rsync (only when available AND dir writable) --
+    if rsync_available:
+        exclude_args = [f"--exclude={pat}" for pat in EXCLUDE_PATTERNS]
+        rsync_extra = ["--exclude=.git/", "--exclude=.github/", "--exclude=.vscode/",
+                       "--exclude=deploy/", "--exclude=plans/"]
+        rsync_cmd = (["rsync", "-az", "--delete"] + exclude_args + rsync_extra
+                     + [str(REPO_ROOT) + "/", f"{remote}:{SWARM_PLUGIN_PATH}/"])
+        if key_file:
+            rsync_cmd += ["-e", f"ssh -i {key_file} -o StrictHostKeyChecking=no -o ConnectTimeout=10"]
+        else:
+            rsync_cmd += ["-e", "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"]
+        print(f"  [RUN] rsync -> {SWARM_SSH_HOST}:{SWARM_PLUGIN_PATH} ...")
+        try:
+            result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=180)
+            if result.returncode == 0:
+                print(f"  [OK] Swarm shared plugin synced ({len(files)} files) — opcache revalidates ~2s")
+                print(f"  [NEXT] Run --verify-integrity to confirm byte-identity")
+                return True
+            err = (result.stderr or result.stdout or f"exit {result.returncode}").strip()[:300]
+            print(f"  [WARN] rsync failed (will try tar-over-SSH): {err}")
+        except FileNotFoundError:
+            print("  [WARN] rsync not found locally — falling back to tar-over-SSH")
+        except subprocess.TimeoutExpired:
+            print("  [FAIL] rsync timed out")
+            return False
+
+    # -- Path 2: tar-over-SSH (primary on www1: no rsync, dir owned by devops) --
     tar_excludes = ["--exclude=.git", "--exclude=.github", "--exclude=.vscode",
-                     "--exclude=deploy", "--exclude=plans", "--exclude=*.md",
-                     "--exclude=__pycache__", "--exclude=*.pyc", "--exclude=*.bak*"]
+                    "--exclude=deploy", "--exclude=plans", "--exclude=*.md",
+                    "--exclude=__pycache__", "--exclude=*.pyc", "--exclude=*.bak*"]
     tar_cmd = ["tar", "cz", "-C", str(REPO_ROOT)] + tar_excludes
     for pat in EXCLUDE_PATTERNS:
         if pat not in ("*.md", "__pycache__", "*.pyc", "deploy", "plans", "*.bak*"):
             tar_cmd += [f"--exclude={pat}"]
     tar_cmd += ["."]
-    remote = f"{SWARM_SSH_USER}@{SWARM_SSH_HOST}"
-    ssh_base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"]
-    if key_file:
-        ssh_base += ["-i", str(key_file)]
-    ssh_tar = ssh_base + [remote, f"mkdir -p {SWARM_PLUGIN_PATH} && tar xz -C {SWARM_PLUGIN_PATH}"]
-    print(f"  [RUN] tar-over-SSH fallback -> {remote}:{SWARM_PLUGIN_PATH} ...")
+
+    if dir_writable:
+        remote_extract = f"tar xz -C {shlex.quote(SWARM_PLUGIN_PATH)}"
+        mode = f"as {SWARM_SSH_USER}"
+    else:
+        remote_extract = (f"sudo -n -u {SWARM_REMOTE_OWNER} tar xz -C "
+                          f"{shlex.quote(SWARM_PLUGIN_PATH)}")
+        mode = f"via sudo -n -u {SWARM_REMOTE_OWNER}"
+
+    ssh_tar = _ssh_base(key_file) + [remote, remote_extract]
+    print(f"  [RUN] tar-over-SSH fallback -> {remote}:{SWARM_PLUGIN_PATH} ({mode}) ...")
     try:
         tar_proc = subprocess.Popen(tar_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         ssh_proc = subprocess.Popen(ssh_tar, stdin=tar_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -468,9 +526,10 @@ def deploy_swarm(dry_run=False):
         _, stderr = ssh_proc.communicate(timeout=180)
         tar_proc.wait(timeout=10)
         if ssh_proc.returncode == 0:
-            print(f"  [OK] Swarm shared plugin synced via tar-over-SSH")
+            print(f"  [OK] Swarm shared plugin synced via tar-over-SSH (overwrite in place, no deletions)")
+            print(f"  [NEXT] Run --verify-integrity to confirm byte-identity")
             return True
-        print(f"  [FAIL] tar-over-SSH failed: {(stderr or b'').decode()[:300]}")
+        print(f"  [FAIL] tar-over-SSH failed (NOTHING written reliably): {(stderr or b'').decode()[:300]}")
         return False
     except Exception as e:
         print(f"  [FAIL] tar fallback error: {e}")
@@ -512,11 +571,13 @@ def verify_swarm(expected_version):
     ssh_base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"]
     if key_file:
         ssh_base += ["-i", str(key_file)]
-    find_cmd = ("find " + SWARM_PLUGIN_PATH + " -type f ( "
-                 "-name '*.php' -o -name '*.js' -o -name '*.css') "
-                 "-not -path '*/.git/*' -not -path '*/tests/*' "
-                 "-not -path '*/deploy/*' -not -path '*/__pycache__/*' "
-                 "-exec md5sum {} \\; | sort")
+    find_cmd = (
+        "find " + shlex.quote(SWARM_PLUGIN_PATH) + " -type f \\( "
+        "-name '*.php' -o -name '*.js' -o -name '*.css' \\) "
+        "-not -name '*.bak*' -not -path '*/tests/*' "
+        "-not -path '*/.git/*' -not -path '*/deploy/*' -not -path '*/__pycache__/*' "
+        "-exec md5sum {} \\; | sort"
+    )
     try:
         r = subprocess.run(ssh_base + [f"{SWARM_SSH_USER}@{SWARM_SSH_HOST}", find_cmd],
                            capture_output=True, text=True, timeout=60)
@@ -594,7 +655,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="List files without deploying")
     parser.add_argument("--verify-only", action="store_true", help="Only check version endpoints")
     parser.add_argument("--list-sites", action="store_true", help="List all sites and waves")
-    parser.add_argument("--verify-swarm", action="store_true", help="Verify repo ↔ NFS integrity after deploy")
+    parser.add_argument("--verify-swarm", action="store_true", help="DEPRECATED alias: full deploy + verify (pre-2b3e763 behavior kept explicit)")
+    parser.add_argument("--verify-integrity", action="store_true", help="READ-ONLY: compare repo checksums vs NFS. Deploys NOTHING.")
     parser.add_argument("--socks5", help="SOCKS5 proxy for FTP (e.g., socks5h://127.0.0.1:1080). Uses curl instead of ftplib.")
     args = parser.parse_args()
 
@@ -658,6 +720,12 @@ def main():
     print(f"\n  [DEPLOY] UTM Webmaster Tool v{expected_version}")
     print(f"  [NET] Deploy: {wave_label} wave ({len(targets)} sites)\n")
 
+    # -- Read-only integrity mode (NO deployment possible from this path) ----
+    if args.verify_integrity:
+        print("  [READ-ONLY] --verify-integrity: comparing repo ↔ NFS checksums (no writes)")
+        ok = verify_swarm(expected_version)
+        sys.exit(0 if ok else 2)
+
     # -- Verify only mode --------------------------------------------------
     if args.verify_only:
         print(f"  [CHECK] Verifying version endpoint across {len(targets)} sites...\n")
@@ -711,7 +779,9 @@ def main():
 
     # -- Post-deploy verification -----------------------------------------
     if args.verify_swarm and not args.dry_run:
-        print(f"\n  -- Verify repo ↔ NFS integrity --")
+        print("  [WARN] --verify-swarm performs a FULL DEPLOY first, then verifies (legacy behavior).")
+        print("  [WARN] For a read-only integrity check use --verify-integrity.")
+        print(f"\n  -- Verify repo ↔ NFS integrity (after deploy) --")
         verify_swarm(expected_version)
 
     # -- Summary ----------------------------------------------------------
