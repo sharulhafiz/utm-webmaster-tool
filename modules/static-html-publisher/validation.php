@@ -135,8 +135,12 @@ function utm_shp_validate_zip( $zip_path, $limits = [] ) {
     // Require index.html at root or inside a single top-level directory.
     if ( ! isset( $found['root_index'] ) ) {
         $has_index_in_subdir = false;
-        if ( 1 === count( $top_dirs ) ) {
-            $single_dir = array_key_first( $top_dirs );
+        // Filter out macOS metadata directories.
+        $real_dirs = array_filter( $top_dirs, function ( $k ) {
+            return '__macosx' !== strtolower( $k );
+        }, ARRAY_FILTER_USE_KEY );
+        if ( 1 === count( $real_dirs ) ) {
+            $single_dir = array_key_first( $real_dirs );
             for ( $i = 0; $i < $count; $i++ ) {
                 $n = $zip->getNameIndex( $i );
                 if ( false === $n ) {

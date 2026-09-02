@@ -340,11 +340,16 @@ function utm_shp_activate( $zip_path, $page_id, $zip_name, $limits = [] ) {
             continue;
         }
 
-        $norm = str_replace( '\\', '/', str_replace( "\0", '', $name ) );
+        $norm = str_replace( '\\\\', '/', str_replace( "\0", '', $name ) );
         $norm = ltrim( $norm, '/' );
 
         if ( str_starts_with( $norm, '..' ) || str_starts_with( $norm, './' ) ) {
             $errors[] = "Skipped unsafe entry: $name";
+            continue;
+        }
+
+        // Skip macOS metadata entries.
+        if ( str_starts_with( strtolower( $norm ), '__macosx/' ) || '__macosx' === strtolower( $norm ) ) {
             continue;
         }
 
