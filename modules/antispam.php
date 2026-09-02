@@ -1220,3 +1220,138 @@ if (defined('WP_CLI') && WP_CLI) {
     
     WP_CLI::add_command('utm-spam', 'UTM_AntiSpam_CLI');
 }
+// --- BEGIN PATCH: Divi contact form antispam ---
+// Hooks into wp_mail at priority 5 (before the generic utm_antispam_check_mail at priority 10)
+// Specifically targets Divi et_pb_contact_form submissions
+
+/**
+ * Divi contact form spam filter — blocks spammy submissions BEFORE email is sent.
+ * Divi forms: et_pb_contact_form_submit → wp_mail(from: mail@, subject: "...")
+ * This runs at priority 5, before the generic utm_antispam_check_mail at priority 10.
+ */
+add_filter('wp_mail', 'utm_divi_form_antispam', 5, 1);
+
+function utm_divi_form_antispam($args) {
+    // Only target Divi contact form emails (From: contains "mail@" and subject matches Divi pattern)
+    $from = isset($args['headers']) ? (is_array($args['headers']) ? implode("\n", $args['headers']) : $args['headers']) : '';
+    $subject = isset($args['subject']) ? $args['subject'] : '';
+    $message = isset($args['message']) ? $args['message'] : '';
+
+    // Detect Divi contact form submissions
+    $is_divi_form = (
+        preg_match('/From:.*?mail@/i', $from) ||
+        preg_match('/Contact Form|Submit|Enquiry|Inquiry|Message from/i', $subject)
+    );
+
+    if (!$is_divi_form) {
+        return $args; // Not a Divi form — let other filters handle it
+    }
+
+    $content_lower = strtolower($subject . ' ' . $message);
+    $blocked = false;
+    $reason = '';
+
+    // 1. Spam word match (reuse global $spam_words)
+    global $spam_words;
+    if (!empty($spam_words)) {
+        foreach ($spam_words as $word) {
+            if (strpos($content_lower, strtolower($word)) !== false) {
+                $blocked = true;
+                $reason = 'word_match:' . $word;
+                break;
+            }
+        }
+    }
+
+    // 2. Cyrillic / non-Latin content (UTM forms should be Malay/English)
+    if (!$blocked) {
+        $non_latin = preg_replace('/[a-zA-Z0-9\s.,!?\'"@$%&*()\-_\/:;+=#\[\]{}<>~`|\\^]/', '', $content_lower);
+        $non_latin = trim(preg_replace('/[«»—–""\'\']/', '', $non_latin));
+        if (strlen($non_latin) > 20) {
+            $blocked = true;
+            $reason = 'non_latin_content';
+        }
+    }
+
+    // 3. Suspicious URLs with spammy TLDs
+    if (!$blocked && preg_match_all('/https?:\/\/([^\s<>"\']+)/i', $content_lower, $urls)) {
+        $spammy_tlds = ['.market', '.click', '.loan', '.work', '.date', '.men', '.win', '.bid', '.racing', '.stream'];
+        foreach ($urls[0] as $url) {
+            foreach ($spammy_tlds as $tld) {
+                if (strpos($url, $tld) !== false) {
+                    $blocked = true;
+                    $reason = 'spammy_tld:' . $tld;
+                    break 2;
+                }
+            }
+        }
+    }
+
+    // 4. Excessive URLs (contact forms rarely have >2 links)
+    if (!$blocked && preg_match_all('/https?:\/\//i', $content_lower) > 2) {
+        $blocked = true;
+        $reason = 'excessive_urls';
+    }
+
+    // 5. Generic spam phrases common in Divi form spam
+    if (!$blocked) {
+        $divi_spam_phrases = array(
+            'check out my', 'visit my', 'click here', 'buy now',
+            'limited offer', 'act now', 'congratulations you won',
+            'free trial', 'no cost', 'risk free', 'apply now',
+            'casino', 'poker', 'betting', 'slots', 'jackpot',
+            'viagra', 'cialis', 'weight loss', 'diet pill',
+            'forex', 'binary option', 'crypto invest', 'bitcoin mine',
+            'essay writing', 'assignment help', 'buy essay', 'homework help',
+            'write my paper', 'thesis writing', 'research paper for sale',
+        );
+        foreach ($divi_spam_phrases as $phrase) {
+            if (strpos($content_lower, $phrase) !== false) {
+                $blocked = true;
+                $reason = 'phrase_match:' . $phrase;
+                break;
+            }
+        }
+    }
+
+    // 6. Very short message with URL (likely link spam)
+    if (!$blocked && strlen(trim($message)) < 30 && preg_match('/https?:\/\//i', $message)) {
+        $blocked = true;
+        $reason = 'short_msg_with_url';
+    }
+
+    // 7. All-caps message (>80% uppercase, min 20 chars) — often spam blasts
+    if (!$blocked && strlen($message) > 20) {
+        $upper = preg_replace('/[^A-Z]/', '', $message);
+        $alpha = preg_replace('/[^a-zA-Z]/', '', $message);
+        if (strlen($alpha) > 0 && strlen($upper) / strlen($alpha) > 0.8) {
+            $blocked = true;
+            $reason = 'excessive_caps';
+        }
+    }
+
+    // 8. Email domain check — disposable/temporary email services
+    if (!$blocked && preg_match('/From:\s*.*?<([^>]+)>/i', $from, $m)) {
+        $email = strtolower($m[1]);
+        $disposable_domains = array(
+            'tempmail.com', 'throwaway.com', 'guerrillamail.com', 'mailinator.com',
+            'yopmail.com', 'temp-mail.org', 'fakeinbox.com', 'sharklasers.com',
+            'guerrillamailblock.com', 'grr.la', 'dispostable.com', 'maildrop.cc',
+            '10minutemail.com', 'trashmail.com', 'tempail.com',
+        );
+        $email_domain = substr($email, strpos($email, '@') + 1);
+        if (in_array($email_domain, $disposable_domains)) {
+            $blocked = true;
+            $reason = 'disposable_email:' . $email_domain;
+        }
+    }
+
+    if ($blocked) {
+        error_log('[UTM AntiSpam] BLOCKED Divi form submission — reason: ' . $reason . ' | From: ' . ($args['from'] ?? '') . ' | Subject: ' . $subject);
+        // Return false to suppress the email entirely
+        return false;
+    }
+
+    return $args;
+}
+// --- END PATCH: Divi contact form antispam ---
