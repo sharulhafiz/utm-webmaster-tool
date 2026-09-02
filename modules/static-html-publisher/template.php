@@ -182,6 +182,15 @@ function utm_shp_serve_asset_from( $page_id, $file ) {
  *
  * Asset detection is URL-based (no rewrite rules required).
  */
+// Suppress WordPress canonical trailing-slash redirect for static asset URLs.
+add_filter( 'redirect_canonical', function ( $redirect_url, $requested_url ) {
+    $asset = utm_shp_detect_asset_request();
+    if ( $asset ) {
+        return false; // Prevent redirect.
+    }
+    return $redirect_url;
+}, 5, 2 );
+
 add_action( 'template_redirect', function () {
     // 1. Serve static assets via URL-based detection (no rewrite rules needed).
     $asset = utm_shp_detect_asset_request();
