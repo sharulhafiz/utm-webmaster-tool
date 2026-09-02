@@ -204,6 +204,43 @@ function utm_shp_cleanup_staging( $page_id ) {
     }
 }
 
+/**
+ * Recursively find the directory containing index.html (up to 3 levels deep).
+ *
+ * @param  string $dir   Absolute path to start from.
+ * @param  int    $depth Current recursion depth.
+ * @return string|false  Directory containing index.html, or false.
+ */
+function utm_shp_find_index( $dir, $depth = 0 ) {
+    if ( $depth > 3 ) {
+        return false;
+    }
+    // Check this directory first.
+    foreach ( ['index.html', 'index.htm'] as $name ) {
+        if ( is_file( $dir . '/' . $name ) ) {
+            return $dir;
+        }
+    }
+    // Recurse into subdirectories.
+    $entries = @scandir( $dir );
+    if ( ! $entries ) {
+        return false;
+    }
+    foreach ( $entries as $entry ) {
+        if ( '.' === $entry || '..' === $entry ) {
+            continue;
+        }
+        $path = $dir . '/' . $entry;
+        if ( is_dir( $path ) ) {
+            $found = utm_shp_find_index( $path, $depth + 1 );
+            if ( false !== $found ) {
+                return $found;
+            }
+        }
+    }
+    return false;
+}
+
 // ── Extraction & activation ──────────────────────────────────────
 
 /**
@@ -340,43 +377,43 @@ function utm_shp_activate( $zip_path, $page_id, $zip_name, $limits = [] ) {
 
     // ── Post-extraction validation ──────────────────────────────
 
-    // 1. Verify index.html is inside the final publication root.
-    $index_found = false;
-    $scan_dir    = $staging;
+    // 1. Locate index.html — search up to 3 levels deep.
+    $index_found  = false;
+    $scan_dir     = $staging;
 
-    $candidates = [
-        $staging . '/index.html',
-        $staging . '/index.htm',
-    ];
+    $found_dir = utm_shp_find_index( $staging );
 
-    // Check single-subdirectory fallback.
-    $entries     = array_diff( scandir( $staging ), [ '.', '..' ] );
-    $dirs        = array_filter( $entries, function ( $e ) use ( $staging ) {
-        return is_dir( $staging . '/' . $e );
-    } );
-    $files_at_root = array_diff( $entries, $dirs );
+    if ( false !== $found_dir ) {
+        // Verify containment.
+        $real_found  = realpath( $found_dir );
+        $real_stg    = realpath( $staging );
+        if ( false !== $real_found && 0 === strpos( $real_found, $real_stg ) ) {
+            $index_found = true;
+            $scan_dir    = $found_dir;
 
-    if ( empty( $files_at_root ) && 1 === count( $dirs ) ) {
-        $subdir = array_values( $dirs )[0];
-        $candidates[] = $staging . '/' . $subdir . '/index.html';
-        $candidates[] = $staging . '/' . $subdir . '/index.htm';
-        $scan_dir     = $staging . '/' . $subdir;
-    }
-
-    foreach ( $candidates as $cand ) {
-        if ( is_file( $cand ) ) {
-            $real_cand = realpath( $cand );
-            $real_stg  = realpath( $staging );
-            if ( false !== $real_cand && 0 === strpos( $real_cand, $real_stg ) ) {
-                $index_found = true;
-                break;
+            // If index.html is nested, flatten: move all contents to staging root.
+            if ( $found_dir !== $staging ) {
+                $flatten_entries = array_diff( @scandir( $found_dir ) ?: [], [ '.', '..' ] );
+                foreach ( $flatten_entries as $entry ) {
+                    $src = $found_dir . '/' . $entry;
+                    $dst = $staging . '/' . $entry;
+                    if ( ! file_exists( $dst ) ) {
+                        rename( $src, $dst );
+                    }
+                }
+                // Remove the now-empty wrapper directory.
+                if ( @scandir( $found_dir ) === [ '.', '..' ] ) {
+                    rmdir( $found_dir );
+                }
+                // Scan from staging root after flatten.
+                $scan_dir = $staging;
             }
         }
     }
 
     if ( ! $index_found ) {
         utm_shp_rmdir_recursive( $staging );
-        return [ 'index.html not found inside extracted package root.' ];
+        return [ 'index.html not found inside extracted package.' ];
     }
 
     // 2. Post-extraction symlink scan.

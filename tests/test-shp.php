@@ -183,7 +183,7 @@ $result = utm_shp_activate( "$fixtures_dir/valid-subdir.zip", $page_id2, 'valid-
 assert_test( empty( $result ), 'valid-subdir.zip extracts without errors', implode( '; ', $result ) );
 
 $active_dir2 = utm_shp_package_dir( $page_id2 );
-assert_test( is_file( "$active_dir2/my-article/index.html" ), 'index.html inside subdirectory' );
+assert_test( is_file( "$active_dir2/index.html" ), 'index.html flattened to root' );
 
 // Test re-publish (atomic replacement).
 $result = utm_shp_activate( "$fixtures_dir/valid-simple.zip", $page_id2, 'valid-simple.zip' );
